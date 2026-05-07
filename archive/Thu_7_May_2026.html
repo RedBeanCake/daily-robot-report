@@ -1,0 +1,153 @@
+
+        <!DOCTYPE html>
+        <html lang="zh-CN">
+        <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>🤖 具身大模型简报 - Thu, 7 May 2026 (VLA: 3 of 35 entries)</title>
+            <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.2.0/github-markdown.min.css">
+            <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+            <script>
+                window.MathJax = {
+                    tex: { inlineMath: [['$', '$'], ['\\(', '\\)']], displayMath: [['$$', '$$'], ['\\[', '\\]']] },
+                    options: { skipHtmlTags: ['script', 'style', 'textarea'] }
+                };
+            </script>
+            <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+            <style>
+                .markdown-body { box-sizing: border-box; min-width: 200px; max-width: 980px; margin: 0 auto; padding: 45px; }
+                @media (max-width: 767px) { .markdown-body { padding: 15px; } }
+            </style>
+        </head>
+        <body class="markdown-body">
+            <a href='../index.html' style='margin-bottom:20px; display:block;'>← 返回主索引</a>
+            <h1>🤖 具身大模型简报 - Thu, 7 May 2026 (VLA: 3 of 35 entries)</h1>
+            <div id="content"></div>
+            
+            <script type="text/markdown" id="raw-markdown">### 1. 🔥 [From Pixels to Tokens: A Systematic Study of Latent Action Supervision for Vision-Language-Action Models] (从像素到词元：视觉-语言-动作模型中潜在动作监督的系统性研究)
+- **研究机构**: `文中未明确标注（作者团队，常见为多所高校联合）`
+- **Arxiv ID**: `2605.04678` | [点击跳转](https://arxiv.org/abs/2605.04678)
+
+**0. 论文标题**
+- **英文标题**: From Pixels to Tokens: A Systematic Study of Latent Action Supervision for Vision-Language-Action Models
+- **中文标题**: 从像素到词元：视觉-语言-动作模型中潜在动作监督的系统性研究
+- **研究机构**: 文中未明确标注（作者团队，常见为多所高校联合）
+
+**1. 整体逻辑**
+- **研究任务**: 研究如何在视觉-语言-动作（VLA）模型中引入和利用“潜在动作（Latent Action）”进行监督训练。
+- **研究动机**: VLA训练数据源杂乱（不同机器人平台、人类视频等），动作空间和语义不统一，直接训练容易导致性能下降。现有方法虽尝试用潜在动作做中间表示，但集成方式零散（有的做特征对齐，有的做辅助目标，有的直接预测Token），缺乏统一基座下的公平对比，最优实践不明确。
+- **本质改动**: 将潜在动作监督拆成两个方向：1. **图像型**（正向，把视觉过渡抽象成高层规划信号引导VLM）；2. **动作型**（反向，把连续动作离散化成统一Token作为VLM的预测目标）。在统一架构下对比4种集成策略，明确不同策略的适用任务边界。
+- **技术溯源**: VLA主干基于 `Qwen3-VL-2B`；潜在动作的编码器/解码器基于自研的 `VQ-VAE` 结构，预训练后在VLA训练阶段冻结。
+
+**2. 技术拆解**
+- **重点改进**: 固定VLA主干和动作Head结构，仅改变VLM占位符的监督方式，提出4种策略：
+  1. **LA-Align（隐式对齐）**：不输出Token，仅用线性层将VLM中间层特征与图像型潜在动作Embedding做余弦对齐。
+  2. **LA-Direct（显式直接解码）**：VLM在特定占位符上直接预测图像型离散Token，再通过动作Head解码为连续动作。
+  3. **LA-Cond（显式条件解码）**：占位符分两段，VLM先预测规划Token，再利用因果注意力将其作为条件生成动作表征。
+  4. **LA-Tok（动作映射）**：用动作型模型将连续动作Chunk直接离散化为Token序列，让VLM像预测语言Token一样预测这些动作Token。
+- **架构细节**: 输入当前帧图像、语言指令和H个动作占位符。VLM处理后，从后半段网络层（第N/2到末尾）提取并堆叠占位符特征。动作Head拼接`图像Token特征 + 占位符特征 + 本体感觉状态`，回归连续动作Chunk。4种策略共享同一骨干与Head，推理时均只需一次前向传播，无额外开销。
+- **核心 Loss**: `L_total = L_action + λ * L_latent`。
+  - `L_action`：固定为连续动作Chunk的MSE重建损失。
+  - `L_latent`：依策略变化。图像型策略中为特征对齐损失或离散Token交叉熵；动作型策略（LA-Tok）为离散Token交叉熵。
+  - 附加：动作型Tokenizer预训练时加入随机掩码一致性Loss，提升离散化表征的鲁棒性。
+
+**3. 实验结果**
+- **数据集和baseline**: 仿真测试 `LIBERO-Long`（侧重长程多步操作）和 `RoboTwin 2.0`（侧重单/双臂精细协调）；真机测试 `JAKA` 机械臂。对比Baseline为基于Qwen3-VL-2B自建的统一VLA，同时列出OpenVLA、π0、UniVLA等SOTA作参考。
+- **评价指标**: 任务成功率（Success Rate %）。
+- **实验结果**: 
+  - **整体提升**：4种策略在仿真和真机全量优于Baseline，验证潜在监督的有效性。
+  - **任务对应关系**：图像型策略在LIBERO长程和场景泛化上优势大（LA-Direct在Long子项+10.8%，Avg+4.0%）；动作型策略（LA-Tok）在RoboTwin复杂运动协调上碾压级领先（Avg +17.5%，单任务最高+24%）。
+  - **核心结论**：直接让VLM预测离散潜在动作Token（而非隐式对齐或连续表征）效果最好。在多任务混合数据联合训练时，潜在监督能稳定缓解异构动作空间的干扰，训练更稳。
+
+---
+
+
+### 2. 🔥 [ConsisVLA-4D: Advancing Spatiotemporal Consistency in Efficient 3D-Perception and 4D-Reasoning for Robotic Manipulation] (ConsisVLA-4D：提升机器人操作中高效3D感知与4D推理的时空一致性)
+- **研究机构**: `哈尔滨工业大学（深圳）、中兴通讯、深圳环西研究院`
+- **Arxiv ID**: `2605.05126` | [点击跳转](https://arxiv.org/abs/2605.05126)
+
+**0. 论文标题**
+- **英文标题**: ConsisVLA-4D: Advancing Spatiotemporal Consistency in Efficient 3D-Perception and 4D-Reasoning for Robotic Manipulation
+- **中文标题**: ConsisVLA-4D：提升机器人操作中高效3D感知与4D推理的时空一致性
+- **研究机构**: 哈尔滨工业大学（深圳）、中兴通讯、深圳环西研究院
+
+**1. 整体逻辑**
+- **研究任务**: 多视角RGB图像+自然语言指令输入下的机器人抓取/操作任务（VLA模型）。
+- **研究动机**: 现有VLA多依赖2D视觉直出动作，空间感知弱（要么加深度相机/点云增加算力负担，要么2D投影不准导致遮挡和位置歧义）；且缺乏时序一致性（机械臂动作会改变场景，但现有模型只会盲目预测未来像素帧，未对齐实际物理动态），导致复杂场景下推理慢、动作易漂移。
+- **本质改动**: 从“2D视觉序列直出动作”改为“压缩3D感知 + 隐式4D时空推理”。将多视角原始视觉Token压缩至1/8~1/12，显式对齐跨视角语义和跨物体几何，并让模型在训练中学习场景动态与深度的变化规律（隐式先验），推理时跳过显式渲染/点云生成，直接用学到的隐式知识并行解码动作。
+- **技术溯源**: 属于开源VLA架构改进。视觉前端串联预训练的 SigLIP（语义）、DINOv2（几何）、VGGT（单目3D/深度/点追踪）；动作解码端沿用主流VLA的 Action Chunk（动作块）并行预测范式。
+
+**2. 技术拆解**
+- **重点改进**: 核心是三个串联模块解决“空间怎么对齐”和“时间怎么连贯”：
+  1. **CV-Aligner（跨视角语义对齐）**：过滤背景，只留任务相关物体，并对齐多视角下的同一物体身份。
+  2. **CO-Fuser（跨物体几何对齐）**：融合多视角特征，消除单视角下的尺度与位置歧义。
+  3. **CS-Thinker（跨场景时空推理）**：训练模型预测“动作后的局部物体动态”和“全局深度分布”。推理时不生成图像/深度图，而是将这些预测内化为隐式知识，直接加速动作生成。
+- **架构细节**:
+  - **输入/输出**: 输入三视角RGB（主、左、右）+ 文本指令；输出固定长度的机械臂动作序列（Action Chunk）。
+  - **CV-Aligner**: SigLIP提取语义 -> FiLM层注入文本特征 -> 计算Token与指令的余弦相似度，保留Top-K（K=32） -> 作为Query，与VGGT的3D特征做Cross-Attention融合，输出指令相关的物体3D特征（Token量降至1/8）。
+  - **CO-Fuser**: DINOv2与VGGT特征在Transformer每一层按余弦衰减权重（$\alpha_l$）逐元素相加 -> 拼接可学习聚合Token后送入块级因果注意力（BC-Attn），提取物体间空间关系。输出全局几何Latent。
+  - **CS-Thinker & SC-Attn**: 初始化动态Token和深度Token。在SC-Attn模块中，动态Token受CV-Aligner引导，深度Token受CO-Fuser引导。两者与动作Token拼接后，并行计算注意力输出动作。推理时隐式知识Token占比低于10%，大幅降低计算量。
+- **核心 Loss**: 
+  - **主 Loss**: 标准动作预测 Loss（回归/分类）。
+  - **辅助 Loss**: ① 动态物体特征MSE Loss ($\mathcal{L}_{\text{dyn-4D}}$，监督局部动态Token，标签来自CoTracker)；② 全局深度特征MSE Loss ($\mathcal{L}_{\text{dep-4D}}$，监督深度Token，标签来自Depth-Anything)。两者仅在训练期使用，用于让模型学会时空演变规律。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - **数据集**: 仿真 LIBERO、RoboTwin 2.0；真机多视角双臂/单臂操作平台。
+  - **Baseline**: OpenVLA（主要对比对象）及同类VLA/World Model方法。
+- **评价指标**: 任务成功率（%）、推理速度加速比（×）、视觉Token压缩率。
+- **实验结果**: 
+  - 相比 OpenVLA，在 LIBERO 仿真集上任务成功率提升 **21.6%**，推理速度加快 **2.3倍**；
+  - 在真机平台上成功率提升 **41.5%**，推理速度加快 **2.4倍**。
+  - 仅使用约 **1/8 的原始视觉输入**，在遮挡、多物体堆叠等复杂场景下显著减少动作震荡，证明时空一致性建模与Token压缩策略有效兼顾了精度与效率。
+
+---
+
+
+### 3. 🔥 [HDFlow: Hierarchical Diffusion-Flow Planning for Long-horizon Tasks] (HDFlow：面向长程任务的层次化扩散-流规划)
+- **研究机构**: `文本未明确标注（通常为高校或AI实验室联合团队）`
+- **Arxiv ID**: `2605.04525` | [点击跳转](https://arxiv.org/abs/2605.04525)
+
+**0. 论文标题**
+- **英文标题**: HDFlow: Hierarchical Diffusion-Flow Planning for Long-horizon Tasks
+- **中文标题**: HDFlow：面向长程任务的层次化扩散-流规划
+- **研究机构**: 文本未明确标注（通常为高校或AI实验室联合团队）
+
+**1. 整体逻辑**
+- **研究任务**: 机器人长程操作任务规划（如家具组装）。根据当前观测和最终目标，在隐空间中生成“高层稀疏子目标序列 + 底层密集轨迹段”，并解码为可执行的控制指令。
+- **研究动机**: 现有全层级使用扩散模型的规划器存在两个硬伤：① 扩散模型多步迭代去噪计算慢，底层实时控制时延高；② 长程稀疏奖励下，纯扩散模型缺乏对计划可行性的显式评估，容易生成“看似合理但会失败”的子目标序列。
+- **本质改动**: 按规划层级分工。高层保留扩散模型的强探索能力用于生成子目标；底层替换为整流流（Rectified Flow，基于ODE）用于快速生成确定性密集轨迹。全程在预训练的结构化隐空间中运行，并引入能量模型（EBM）和流形投影机制，防止高层规划偏离可行路径。
+- **技术溯源**: 视觉编码器基于 DINOv2；世界模型基于 RSSM（Dreamer系列架构）；高层规划基于条件扩散模型；底层规划基于条件整流流模型（Rectified Flow）；引导机制结合能量模型（EBM）与流形投影技术。
+
+**2. 技术拆解**
+- **重点改进**: 
+  1. **隐空间重塑**：在世界模型训练中加入对比学习，让成功轨迹的中间状态在隐空间中靠近目标状态，失败轨迹远离目标状态，使隐空间自带“任务进度”语义。
+  2. **EBM引导+流形投影**：高层扩散采样时，用单独训练的EBM提供梯度引导（压低成功序列能量）。针对高维空间引导易漂移的问题，采样后增加一步“流形投影”，将采样点拉回成功子目标构成的局部低维切空间。
+  3. **底层加速**：底层放弃扩散模型，改用整流流拟合最优传输路径，通过ODE求解器一步生成平滑轨迹，彻底解决推理慢的问题。
+- **架构细节**: 
+  - **Stage 1**：训练RSSM世界模型（含视觉编码器、动态先验、解码器）+ 逆动力学模型（IDM）。训练完成后冻结权重，提取隐状态数据集。
+  - **Stage 2**：联合训练规划器。高层输入 $(z_0, z_G)$，扩散模型输出 $K$ 个稀疏隐子目标；低层以相邻子目标对为条件，整流流模型输出固定长度 $H$ 的密集隐轨迹；IDM将隐轨迹对 $(z_t, z_{t+1})$ 映射为机器人动作。推理采用MPC式滚动重规划：每一步重新生成剩余子目标序列，取第一个子目标交由底层执行。
+- **核心 Loss**: 
+  规划器联合优化四项：① $\mathcal{L}_{HL}$：高层扩散标准噪声预测MSE；② $\mathcal{L}_{LL}$：低层整流流速度场匹配MSE；③ $\mathcal{L}_{EBM}$：对比能量Loss（拉近成功轨迹能量，推远失败轨迹能量）；④ $\mathcal{L}_{projection}$：投影一致性Loss，惩罚生成子目标偏离学习到的隐流形。Stage 1 额外包含观测重建Loss、KL正则、进度对比Loss和逆动力学MSE。
+
+**3. 实验结果**
+- **数据集和baseline**: 主测 FurnitureBench（仿真+真机，4个接触密集型组装任务，分Low/Med/High三种随机化难度）；泛化测试 RLBench 和 OGBench。对比方法涵盖 BC、Diffuser、Decision Diffuser(DD)、HDMI、SHD 等主流生成式/分层规划器。
+- **评价指标**: 任务最终成功率（%），在不同环境扰动/初始条件随机化级别下统计。
+- **实验结果**: 全指标显著领先。以 FurnitureBench 仿真为例，HDFlow 在低/中/高难度下的成功率均大幅超越次优基线（例如 `one_leg` 任务从次优的 71%/31%/15% 提升至 92%/71%/39%；`lamp` 任务从 43%/22%/16% 提升至 68%/49%/34%）。消融实验证明 EBM 引导和流形投影是长程成功率提升的核心；底层整流流在保证精度不变的前提下推理速度显著提升。真机部署与跨基准测试验证了该混合架构在速度、鲁棒性和泛化性上的综合优势。
+
+---
+</script>
+            <script>
+                const rawMdElement = document.getElementById('raw-markdown');
+                if (rawMdElement) {
+                    document.getElementById('content').innerHTML = marked.parse(rawMdElement.textContent);
+                    // 渲染后触发公式排版
+                    if (window.MathJax && window.MathJax.typesetPromise) {
+                        window.MathJax.typesetPromise();
+                    }
+                }
+                function copySources() { /* 原代码保持不变 */ }
+            </script>
+        </body>
+        </html>
+        
