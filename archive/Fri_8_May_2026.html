@@ -1,0 +1,328 @@
+
+        <!DOCTYPE html>
+        <html lang="zh-CN">
+        <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>🤖 具身大模型简报 - Fri, 8 May 2026 (VLA: 8 of 42 entries)</title>
+            <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.2.0/github-markdown.min.css">
+            <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+            <script>
+                window.MathJax = {
+                    tex: { inlineMath: [['$', '$'], ['\\(', '\\)']], displayMath: [['$$', '$$'], ['\\[', '\\]']] },
+                    options: { skipHtmlTags: ['script', 'style', 'textarea'] }
+                };
+            </script>
+            <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+            <style>
+                .markdown-body { box-sizing: border-box; min-width: 200px; max-width: 980px; margin: 0 auto; padding: 45px; }
+                @media (max-width: 767px) { .markdown-body { padding: 15px; } }
+            </style>
+        </head>
+        <body class="markdown-body">
+            <a href='../index.html' style='margin-bottom:20px; display:block;'>← 返回主索引</a>
+            <h1>🤖 具身大模型简报 - Fri, 8 May 2026 (VLA: 8 of 42 entries)</h1>
+            <div id="content"></div>
+            
+            <script type="text/markdown" id="raw-markdown">### 1. 🔥 [OA-WAM: Object-Addressable World Action Model for Robust Robot Manipulation] (OA-WAM：面向鲁棒机器人操作的物体可寻址世界动作模型)
+- **研究机构**: `清华大学、上海交通大学、南洋理工大学`
+- **Arxiv ID**: `2605.06481` | [点击跳转](https://arxiv.org/abs/2605.06481)
+
+**0. 论文标题**
+- **英文标题**: OA-WAM: Object-Addressable World Action Model for Robust Robot Manipulation
+- **中文标题**: OA-WAM：面向鲁棒机器人操作的物体可寻址世界动作模型
+- **研究机构**: 清华大学、上海交通大学、南洋理工大学
+
+**1. 整体逻辑**
+- **研究任务**: 视觉-语言-动作（VLA）/世界动作模型（WAM）驱动的机器人闭环操作策略生成。
+- **研究动机**: 现有WAM用整图、视频流或全局隐变量预测未来，动作解码器缺乏指向具体物体的稳定接口。当场景发生视角切换、布局变化或初始位姿扰动时，目标物体虽仍可见，但其身份特征会与背景在全局Token里严重耦合，导致策略选错目标、动作发散。
+- **本质改动**: 将“全局未来预测”改为“按物体拆分的Slot状态预测”。在Transformer底层做结构硬约束：强制注意力机制的Key只读物体的“身份地址(addr)”，不读随时间变化的外观/位置(content)，从张量层面把“操作谁”和“它当前长啥样/在哪”彻底解耦。
+- **技术溯源**: 主干基于 Chameleon-7B（多模态自回归Transformer）；视觉感知上游用 SAM 3 + DINOv3 提取Mask和特征；语言侧用 Qwen3-VL 解析名词短语；动作解码参考 π0 的 Flow-Matching 范式。
+
+**2. 技术拆解**
+- **重点改进**:
+  1. **Addr/Content 双通道Slot**：每帧拆为 N+1 个Slot。每个Slot向量硬性拆成32维冻结的 `addr`（语言标签+首帧DINO特征拼接，单Episode不变）和256维时变的 `cnt`（逐帧刷新），外加位姿和角色编码。
+  2. **可寻址注意力约束**：在32层Transformer的每层，计算Slot间注意力的Key时，Mask掉后256维，只让投影矩阵读前32维的 `addr`。每层残差更新后，通过前向Hook把 `addr` 切片强行覆写回初始缓存值。保证路由信号仅由身份决定，完全屏蔽场景上下文扰动。
+- **架构细节**:
+  - **输入输出**: 6路Token流（文本、图像VQ码、Object Slot、本体状态、历史动作等）按Block-causal拼接。输出双头并行：World Head 用MSE回归下一帧各Slot的 `(cnt, pose)`；Action Head 读取序列末尾的 `[ACT-Q]` 查询Token，用MLP输出16步连续动作块。
+  - **参数与训练**: Chameleon-7B主干冻结。仅Slot适配器和双头可训练，配合LoRA微调（覆盖qkv/gate等投影层），总可训练参数量约127M（80M LoRA + 47M Heads）。
+- **核心 Loss**: 
+  - 主Loss：`L_act`（Flow-Matching动作生成） + `L_world`（Slot状态/位姿MSE预测） + `L_vq`（复用LM头预测下一帧VQ图像）。
+  - 辅助正则：`L_compose`（干扰物随机插入/置换，强制模型对无关物体置换不变） + `L_role`（弱角色提示对齐）。按固定权重线性加权训练。
+
+**3. 实验结果**
+- **数据集和baseline**: 标准集用 LIBERO 和 SimplerEnv (WidowX视觉匹配)；零样本鲁棒压力测试用 LIBERO-Plus（7个控制扰动轴）。对比 π0/π0.5、OpenVLA、X-VLA、VLA-JEPA、Cosmos-Policy 等主流VLA与WAM。
+- **评价指标**: 任务成功率（%）。鲁棒性重点看 LIBERO-Plus 的几何轴均值（Camera/Robot Init/Layout，即Geo Avg）和七轴总均值。另设计因果Slot干预测试（Swap-binding余弦相似度）定量验证寻址解耦程度。
+- **实验结果**:
+  - **标准精度**：LIBERO 97.8%，SimplerEnv 79.3%，均列当前第一，证明Slot拆解未损伤分布内性能。
+  - **鲁棒精度**：LIBERO-Plus 总均分 83.9%。在假设强相关的几何轴上显著领先：相机扰动 +4.7% 至 80.5%，Geo Avg 达 84.3%（较 π0.5 高 4.8%）。主要短板在 Sensor Noise 轴（上游SAM/DINO感知被噪声破坏，非策略瓶颈）。
+  - **机制归因**：Slot干预测试中，目标绑定余弦相似度达 0.87（所有Holistic基线 ≤0.09），证明动作路由确实锚定在 `addr` 子空间。消融显示：关闭OA约束后，分布内LIBERO仅降1.5%，但分布外相机轴暴跌13.3%。证明鲁棒性收益纯粹来自可寻址的结构归纳偏置，而非参数容量增加。
+
+---
+
+
+### 2. 🔥 [CKT-WAM: Parameter-Efficient Context Knowledge Transfer Between World Action Models] (CKT-WAM：世界动作模型间参数高效的上下文知识迁移)
+- **研究机构**: `清华大学、LivsynRobotics、上海人工智能实验室`
+- **Arxiv ID**: `2605.06247` | [点击跳转](https://arxiv.org/abs/2605.06247)
+
+**0. 论文标题**
+- **英文标题**: CKT-WAM: Parameter-Efficient Context Knowledge Transfer Between World Action Models
+- **中文标题**: CKT-WAM：世界动作模型间参数高效的上下文知识迁移
+- **研究机构**: 清华大学、LivsynRobotics、上海人工智能实验室
+
+**1. 整体逻辑**
+- **研究任务**: 将大参数 Teacher WAM 的环境动力学与动作先验知识，高效迁移至轻量 Student WAM，提升学生模型的零样本泛化与长程操作能力。
+- **研究动机**: WAMs 生成能力强但推理延迟高，实际部署需要轻量化学生模型。传统蒸馏（输出层模仿或全隐藏层对齐）在异构架构间成本高、刚性大，且全量微调显存开销不可接受。缺乏一种架构解耦、参数高效的中间态知识传递接口。
+- **本质改动**: 放弃对动作输出或全量特征的硬匹配，改为“上下文抽取-软注入”：将教师中间层特征压缩为少量紧凑 Token，直接拼接至学生原有的文本条件序列中，利用学生原生 Cross-Attention 通路完成知识注入。
+- **技术溯源**: 基于 DiT 扩散架构的世界动作模型体系。教师侧采用 DreamZero-14B，学生侧采用 Cosmos-Policy-2B。
+
+**2. 技术拆解**
+- **重点改进**: 提出轻量 CKT 模块替代全量微调。包含教师侧特征压缩（LQCA）与学生侧路由 Adapter（MoE 结构），实现条件自适应的知识提炼，骨干网络全程冻结。
+- **架构细节**: 
+  - **输入/前向**: 教师固定 t=0 单次前向，提取第 20 层隐藏状态 $H_T$。不依赖完整扩散轨迹，仅做单次场景编码。
+  - **压缩与路由**: 用可学习 Query 的交叉注意力（LQCA）将长序列压为 32 个通用 Token 和 32 个专用 Token。通用分支走常驻低秩 Adapter；专用分支由轻量 Router 算 Top-2 得分，稀疏激活（共 8 个专家）。两者拼接为上下文 $C_A$。
+  - **学生注入**: $C_A$ 拼在学生文本 Embedding 后，插入 `<sep>` 分隔符。学生 DiT 骨干冻结，上下文仅通过原生的条件 Cross-Attention 参与未来帧/动作去噪，不破坏视觉流的 3D RoPE 几何编码。
+  - **参数占比**: CKT 模块总可训练参数仅 187.4M，占学生骨干的 1.17%。
+- **核心 Loss**: 无额外辅助任务。直接复用学生原有的扩散去噪 Loss（预测未来视频 $L_{vid}$ + 未来动作 $L_{act}$），外加一个 MoE 风格的负载均衡 Loss（$L_{bal}$）防止路由偏向单一专家。总目标：$\mathcal{L} = \mathcal{L}_{act} + \lambda_{vid}\mathcal{L}_{vid} + \lambda_{bal}\mathcal{L}_{bal}$。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - **仿真**: LIBERO-Plus（覆盖相机视角、机器人构型、语言指令、光照、背景、噪声、布局 7 类分布外扰动）。
+  - **Baseline**: 主流 VLA/WAM（OpenVLA, $\pi_0$ 系列, Cosmos-Policy, VLANeXt 等）及 PEFT 方法（LoRA, PiSSA, Mona, AdaMoLE 等）。
+- **评价指标**: 各 OOD 维度的任务成功率（%）及汇总总成功率；真实世界多步长程任务的平均成功率。
+- **实验结果**: 
+  - LIBERO-Plus 总成功率 86.1%，超过所有对比的 VLA 和 WAM 基线，在语言泛化、光照/布局偏移上优势显著。
+  - 仅训练 1.17% 参数即逼近全量微调性能，且显存与推理开销远低于传统蒸馏。
+  - 真机部署在 4 项长程多步操作任务上取得 83.3% 的平均成功率，验证了迁移上下文对真实物理环境的长程规划有效性。
+
+---
+
+
+### 3. 🔥 [RobotEQ: Transitioning from Passive Intelligence to Active Intelligence in Embodied AI] (RobotEQ：具身AI中从被动智能向主动智能的跨越)
+- **研究机构**: `同济大学（主导）、清华大学、香港中文大学、奥卢大学`
+- **Arxiv ID**: `2605.06234` | [点击跳转](https://arxiv.org/abs/2605.06234)
+
+**0. 论文标题**
+- **英文标题**: RobotEQ: Transitioning from Passive Intelligence to Active Intelligence in Embodied AI
+- **中文标题**: RobotEQ：具身AI中从被动智能向主动智能的跨越
+- **研究机构**: 同济大学（主导）、清华大学、香港中文大学、奥卢大学
+
+**1. 整体逻辑**
+- **研究任务**: 评估具身机器人在无明确用户指令下，理解并遵守社会规范（判断行为合规性、定位安全活动区域/轨迹）的能力。
+- **研究动机**: 现有具身AI研究几乎全部围绕“被动智能”（依赖显式指令完成任务）展开。机器人要真正进入人类生活场景，必须具备自主判断“什么能做、什么不能做”的常识，但目前缺乏系统评估该“主动智能”的基准与数据。
+- **本质改动**: 非模型架构改动，而是评测范式与数据构建管线的转移。将评估重心从“指令跟随任务成功率”转向“社会规范理解与自主合规决策”，并建立首个配套的大规模评测基准。
+- **技术溯源**: 纯评测工作，不训练新模型。评测基座覆盖主流开源/闭源VLM（Qwen2.5/3-VL、InternVL、LLaVA、GPT系列、Claude、Gemini等）及垂直视觉模型（Grounding、GUI、OCR专用模型）。数据生成依赖LLM扩写场景描述、文生图模型合成图像，最终由人工多轮校验定标。
+
+**2. 技术拆解**
+- **重点改进**: 提出一套标准化数据生产流水线：LLM生成场景与动作候选池 → 文生图出图 → 专家模型打分+人工清洗迭代 → 设计动作判断（二分类）与空间定位（多选区域）题型 → 7名标注员交叉投票+专家校准。同时提供Prompt优化（CoT）与RAG外挂社会规范知识库的推理增强方案。
+- **架构细节**: 无网络结构改动。输入为第一人称视角图像+固定格式Prompt；输出为Proper/Improper标签或ABCD空间选项。数据集共1,900张图像，覆盖10大类56子类；含5,353条动作判断题与1,286条空间定位题，标注8个社会维度（如非语言信号识别、资源归属、音量与行为克制等）。
+- **核心 Loss**: 无（本文未进行模型训练，仅提供推理阶段的Prompting与检索增强策略，不涉及损失函数设计）。
+
+**3. 实验结果**
+- **数据集和baseline**: 数据集为自建RobotEQ-Data。Baseline涵盖3类20余个模型：闭源VLM（GPT-5.5/5.4、Claude Opus 4.6/4.7、Gemini 2.5/3.1等）、开源通用VLM（Qwen系列、InternVL3、LLaVA-OneVision等）、开源垂直视觉模型（GroundNext、GUI-Actor、Nanonets等）。
+- **评价指标**: 动作判断采用Macro-F1；空间定位采用Accuracy、Macro-F1、Hit Rate。
+- **实验结果**: 
+  - 动作判断：闭源模型领先，GPT-5.5 Macro-F1最高（66.45%），但整体仍显著低于人类。模型普遍存在“合规偏好”，对违规动作识别率极低。开源通用模型居中，垂直视觉模型垫底，证明细粒度OCR/接地能力无法直接迁移至社会常识推理。
+  - 空间定位：所有模型Accuracy极低，远未达人类水平。部分专用模型Hit Rate超90%，说明能识别图像中的空间区域，但无法结合社会规范做出正确选择。
+  - 策略与归因：引入RAG检索外部社会规范库可稳定小幅提分。错误分析归纳出四类典型缺陷：①过度激进（忽视他人当前状态强行介入）；②过度谨慎（误判正常干预边界）；③缺乏社交/情绪经验；④空间决策脱离行为后果考量。结论：当前VLM尚未具备可靠的主动智能，需针对性对齐社会约束知识。
+
+---
+
+
+### 4. 🔥 [When to Trust Imagination: Adaptive Action Execution for World Action Models] (何时相信“想象”：世界动作模型的自适应动作执行)
+- **研究机构**: `南方科技大学、香港大学、Astribot（星动纪元）`
+- **Arxiv ID**: `2605.06222` | [点击跳转](https://arxiv.org/abs/2605.06222)
+
+**0. 论文标题**
+- **英文标题**: When to Trust Imagination: Adaptive Action Execution for World Action Models
+- **中文标题**: 何时相信“想象”：世界动作模型的自适应动作执行
+- **研究机构**: 南方科技大学、香港大学、Astribot（星动纪元）
+
+**1. 整体逻辑**
+- **研究任务**: 解决世界动作模型（WAM）在物理执行过程中固定动作块长度带来的效率与鲁棒性矛盾。
+- **研究动机**: 现有 WAM 推理一次后固定执行预设步长的动作块。在动力学简单阶段，固定短块导致频繁重推理，算力浪费；在接触密集、物体形变或随机性强的困难阶段，固定长块会导致模型“想象”的未来与物理实际快速偏离，开环执行累积误差引发失败。缺乏在线判断预测轨迹是否仍可信的机制。
+- **本质改动**: 将执行逻辑从“固定步长开环”改为“基于未来-现实一致性校验的自适应执行”。利用 WAM 自带的视频预测能力作为内部期望，实时比对真实观测与预测画面。一致则延长执行步数以省算力，不一致则立即截断重规划以保安全。
+- **技术溯源**: 基于 Motus 世界动作模型架构进行扩展；验证器采用标准 Transformer 结构，训练依赖流匹配（Rectified Flow）策略。
+
+**2. 技术拆解**
+- **重点改进**: 提出 FFDC（Future Forward Dynamics Causal Attention）轻量验证器。核心是利用一次 WAM 推理后缓存的 KV Cache，后续执行中仅对最新真实观测进行编码，通过注意力机制与缓存的预测动作、预测视觉及指令进行比对，避免重复运行大模型。
+- **架构细节**:
+  - **输入序列**: `[指令Token, 预测历史视频Token, 真实观测Token, 预测未来视频Token, 待执行动作Token, [CLS]]`。
+  - **注意力设计**: 引入结构化布尔掩码，强制时间对齐的因果交互。未来视频/动作 Token 只能关注当前及过去时间步的对齐 Token，防止未来信息泄露。采用局部窗口注意力进一步降计算量。
+  - **输出决策**: `[CLS]` Token 聚合全局状态后经 MLP 输出 `[0,1]` 置信度。设定阈值 0.5，高于阈值继续执行当前块，低于则停止并触发 WAM 重新推理。
+- **核心 Loss**:
+  - **WAM 训练**: $\mathcal{L}_{WAM} = \mathcal{L}_{act} + \mathcal{L}_{vid}$（动作与视频的流匹配 Loss）。引入 Mixture-of-Horizon 随机起点采样，缓解训练数据对序列前缀的偏差，提升长程覆盖。
+  - **验证器训练**: 二分类交叉熵 $\mathcal{L}_{ver}$。正样本来自成功演示/轨迹；负样本来自失败轨迹及人工扰动（时序交换、夹爪开合翻转、后半段高斯噪声、尾部缩放）。验证器学习区分可执行段与会导致失败的动作段。
+
+**3. 实验结果**
+- **数据集和baseline**:
+  - **数据集**: RoboTwin 仿真基准（50个任务，分 Clean 随机/困难设置）；真机 Astribot S1（香蕉/胡萝卜抓取放置）。
+  - **Baseline**: Base-Motus（固定执行块长16）；LC-16/32/48/64（训练块长64，测试固定执行对应长度）。
+- **评价指标**: 任务成功率 (SR)、平均完成时间 (T)、WAM 前向推理调用次数 (Calls)。
+- **实验结果**:
+  - **仿真 (RoboTwin)**: 相比 Base-Motus，WAM 调用次数降低 **69.10%**，任务时间缩短 **34.02%**，平均成功率提升 **2.54%**。困难任务（接触/形变）SR 提升显著（如 Rand.hard 54.2% → 76.4%）；简单任务 SR 持平但耗时大幅下降。验证器自动在简单阶段输出高置信度（长执行），困难阶段输出低置信度（频繁重规划）。
+  - **真机**: 相比 LC-16，成功率从 **45% 提升至 80%**。因真机感知与接触噪声大，一致性校验更敏感，触发重规划次数略增（时间与 Calls 微升），但有效阻断了开环误差累积，实现了鲁棒性优先的合理权衡。
+
+---
+
+
+### 5. 🔥 [VLA-GSE: Boosting Parameter-Efficient Fine-Tuning in VLA with Generalized and Specialized Experts] (VLA-GSE：基于通用与专用专家提升VLA参数高效微调)
+- **研究机构**: `微软亚洲研究院 (MSRA)，清华大学`
+- **Arxiv ID**: `2605.06175` | [点击跳转](https://arxiv.org/abs/2605.06175)
+
+**0. 论文标题**
+- **英文标题**: VLA-GSE: Boosting Parameter-Efficient Fine-Tuning in VLA with Generalized and Specialized Experts
+- **中文标题**: VLA-GSE：基于通用与专用专家提升VLA参数高效微调
+- **研究机构**: 微软亚洲研究院 (MSRA)，清华大学
+
+**1. 整体逻辑**
+- **研究任务**: 将预训练视觉-语言模型（VLM）高效适配为下游机器人控制策略（VLA）。
+- **研究动机**: 全量微调（FFT）在少量轨迹数据上极易过拟合且引发灾难性遗忘；现有参数高效微调（PEFT/LoRA）虽能保住多模态先验，但低秩表征容量不足，难以应对需要高精度的具身控制。
+- **本质改动**: 用“始终激活的通用专家 + 按需路由的专用专家”的混合低秩结构（MoE-LoRA），替换传统单路LoRA，在固定可训练参数预算下兼顾先验保留与控制适配。
+- **技术溯源**: 视觉语言基座 Qwen3-VL-4B-Instruct；动作解码头沿用 OpenVLA-OFT 的并行MLP架构；微调范式融合 SVD-PEFT 与 路由低秩网络。
+
+**2. 技术拆解**
+- **重点改进**:
+  1. **SVD谱分解初始化**：对冻结骨干权重 $W_0$ 做奇异值分解。最大奇异值段初始化为通用专家（承载主干知识），剩余奇异值均匀切分给多个专用专家（处理输入特异性控制）。
+  2. **梯度尺度平衡**：推导证明SVD初始化会导致各专家初始梯度范数差异大。据此提出“局部奇异值迹的倒数”作为缩放系数，统一各专家的更新步长，避免弱专家失效。
+  3. **骨干权重期望补偿**：MoE结构初始化会引入非零偏移。计算专家期望偏移量 $W_{res}$，将冻结权重修正为 $\tilde{W}_0 = W_0 - W_{res}$，保证模型在初始化时刻的等效输出与预训练权重严格对齐。
+- **架构细节**:
+  - 输入图像+指令，输出低维关节动作。
+  - 骨干全冻结，仅在Transformer层注入GSE模块。低秩维度 $r=16$，每层配置1个通用专家+7个专用专家（Top-2路由）。动作头全量训练。
+  - 参数量：模型总参数约4.55B，实际仅训练1.14亿（占比2.51%）。
+- **核心 Loss**: 主 Loss 为动作回归的 L1 损失；附加专家负载均衡辅助 Loss（$\mathcal{L}_{bal}$），抑制路由塌缩。总 Loss 为 $\|\hat{a}-a\|_1 + \alpha \sum \mathcal{L}_{bal}$。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - 仿真基准：LIBERO-Plus（覆盖7种分布扰动的零-shot操作）。
+  - 对比方法：全量微调(FFT)；LoRA系列(DoRA, PiSSA, GOAT等)；主流VLA(OpenVLA, $\pi_0$, VLANeXt)。
+  - 真实世界：4项操作任务，4种分布偏移条件。
+- **评价指标**: 任务成功率（%）、多模态理解基准得分对比、真实世界实操成功率、注意力图可视化。
+- **实验结果**:
+  - LIBERO-Plus零-shot平均成功率 81.2%，在同等参数量预算下超全量微调 6.3%，超最强PEFT基线(GOAT) 4.4%，在光照、背景、语言等扰动维度鲁棒性均第一。
+  - 多模态理解能力与LoRA持平，显著优于FFT，验证了其有效抑制灾难性遗忘。
+  - 真实世界成功率 82.5%，较FFT提升 16.7%。注意力图显示模型能精准聚焦物体可抓取边缘，语义-空间对齐更准确。
+
+---
+
+
+### 6. 🔥 [Reconstruction or Semantics? What Makes a Latent Space Useful for Robotic World Models] (重建还是语义？什么让潜在空间对机器人世界模型真正有用)
+- **研究机构**: `Mila, Polytechnique Montréal, Chandar Research Lab, Canada CIFAR AI Chair`
+- **Arxiv ID**: `2605.06388` | [点击跳转](https://arxiv.org/abs/2605.06388)
+
+**0. 论文标题**
+- **英文标题**: Reconstruction or Semantics? What Makes a Latent Space Useful for Robotic World Models
+- **中文标题**: 重建还是语义？什么让潜在空间对机器人世界模型真正有用
+- **研究机构**: Mila, Polytechnique Montréal, Chandar Research Lab, Canada CIFAR AI Chair
+
+**1. 整体逻辑**
+- **研究任务**: 评估动作条件化潜在扩散模型（LDM）作为机器人世界模型时，潜在空间的类型（像素重建对齐 vs 语义特征对齐）如何影响动力学学习、规划与策略评估。
+- **研究动机**: 当前机器人世界模型默认使用 VAE 类编码器，优化目标是像素重建。但机器人控制需要的是动作几何、物理接触和任务进度信息，而非画质。语义空间可能更契合控制需求，但维度高、扩散训练不稳定，且缺乏在真实操作任务上的公平对比。
+- **本质改动**: 采用严格控制变量范式：固定数据集（Bridge V2）、DiT 过渡模型架构、动作注入方式和训练超参，仅替换冻结的编码器（及可选降维适配器），直接测量不同潜在空间对策略相关指标的影响。
+- **技术溯源**: 基于 Latent Diffusion Model (LDM)、Diffusion Transformer (DiT) 与 Flow Matching 训练范式。编码器复用开源视觉基础模型（SD3 VAE, VA-VAE, Cosmos, V-JEPA 2.1, Web-DINO, SigLIP 2），降维部分接入 S-VAE 适配器。
+
+**2. 技术拆解**
+- **重点改进**: 验证并适配了一套在高维语义空间训练扩散世界模型的有效流程。对原生高维语义特征采用“宽 DDT 头 + 维度依赖的噪声调度偏移”解决离流形生成问题；对压缩特征采用预训练 S-VAE 适配器。证明无需改动 DiT 主干，仅调整表征接口即可显著提升策略相关性。
+- **架构细节**: 
+  - 输入：2帧历史RGB图像 + 连续7-DoF机械臂动作。
+  - 编码：冻结编码器提取空间潜在表征 $z_t \in \mathbb{R}^{N \times D}$（重建系 $D=16/32$，语义系 $D=1024/1152$）。可选 S-VAE 将高维特征压缩至 $d=96$。
+  - 过渡模型：动作条件 DiT。帧内用空间注意力块，帧间用因果时间注意力块。采用 Flow Matching 训练，预测未来8帧潜在轨迹。
+  - 推理：10帧滑动窗口自回归逐帧 rollout，解码回像素空间供评测。
+- **核心 Loss**: 
+  - 世界模型主干：Flow Matching Loss（在潜在空间做扩散去噪）。
+  - 适配器（可选）：S-VAE 独立预训练使用 KL 正则化的特征重建 Loss。
+  - 无额外辅助监督任务，完全依赖预训练编码器自带的表征结构与潜在扩散的目标对齐。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - 数据集：Bridge V2（约6万条真实机械臂操作数据，13类任务）用于训练；SOAR 数据集提供轨迹成功/失败标签用于分类探针。
+  - Baseline：3类重建编码器（SD3 VAE, VA-VAE, Cosmos） vs 3类语义编码器（V-JEPA 2.1, Web-DINO, SigLIP 2）。每种语义编码器均测试原生高维与适配器压缩至 d=96 两种配置。
+- **评价指标**: 建立三轴评估体系：
+  1. 规划与策略：CEM 动作恢复误差（k=1, k=4）、OpenVLA-7B 闭环成功率（Consensus SR & Borda Rank）、OOD 指令/物体扰动鲁棒性、VLM 交互质量打分。
+  2. 视觉保真：FID, SSIM, LPIPS, FVD, 点跟踪一致性、WorldArena 几何/深度指标。
+  3. 潜在表征质量：逆动力学模型 (IDM) 动作恢复 Pearson r、潜在轨迹成功分类器准确率。
+- **实验结果**:
+  - 语义空间在策略相关维度全面领先。V-JEPA 2.1 与 SigLIP 2 将 OpenVLA 闭环成功率从重建系的 ~17% 提升至 ~33-36%，OOD 成功率翻倍，CEM 动作恢复误差显著降低。
+  - 画质指标具有欺骗性。重建系在单帧像素指标（如 FID、局部纹理）上占优，但在时间一致性、全局结构和动作相关性上落后。语义空间解码视频在 SSIM、FVD 和时空连贯性上表现更好。
+  - 模型放大（DiT-S → DiT-L）能弥补重建系的视觉短板，但无法改善其动作几何建模能力；CEM 误差和 IDM 相关性依然被语义空间大幅拉开。
+  - 降维适配器能降低扩散训练难度，但会轻微扭曲控制几何；配合宽头与噪声调度偏移的原生高维训练是更稳妥的选择。
+  - **结论**：机器人世界模型选潜在空间，应优先考察动作可恢复性与任务语义保留能力，而非单纯追求像素重建指标。
+
+---
+
+
+### 7. 🔥 [EA-WM: Event-Aware Generative World Model with Structured Kinematic-to-Visual Action Fields] (EA-WM：基于结构化运动-视觉动作场的事件感知生成式世界模型)
+- **研究机构**: `复旦大学, 中关村人工智能研究院, 中国科学技术大学, DeepCybo`
+- **Arxiv ID**: `2605.06192` | [点击跳转](https://arxiv.org/abs/2605.06192)
+
+**0. 论文标题**
+- **英文标题**: EA-WM: Event-Aware Generative World Model with Structured Kinematic-to-Visual Action Fields
+- **中文标题**: EA-WM：基于结构化运动-视觉动作场的事件感知生成式世界模型
+- **研究机构**: 复旦大学, 中关村人工智能研究院, 中国科学技术大学, DeepCybo
+
+**1. 整体逻辑**
+- **研究任务**: 机器人操作视频世界模型生成。给定初始观测帧、语言指令和机器人动作序列，预测未来连续的操作视频。
+- **研究动机**: 现有世界模型多把视频生成当作策略学习的辅助手段，直接把关节角或末端位姿等低维向量当成条件Token喂给视频模型。这种“低维抽象Token -> 高维像素生成”的跨域映射导致严重的域不对齐，生成视频经常丢失机器人几何结构，也画不准抓取、碰撞等细粒度交互动态。
+- **本质改动**: 放弃低维动作Token注入，把机器人运动学状态直接投影到相机视角，渲染成与目标视频同域的“结构化运动-视觉动作场（KVAF）”；同时设计“事件感知融合模块”，用视频帧差特征做监督，强迫模型在生成时把计算资源动态分配给正在发生运动和状态变化的区域。
+- **技术溯源**: 基座为 Wan2.2-TI2V（视频扩散Transformer），沿用其视频VAE编解码和Flow Matching训练框架。
+
+**2. 技术拆解**
+- **重点改进**: 
+  1. **KVAF构建**：通过正运动学求解各连杆3D位姿，结合相机内外参投影到2D平面，光栅化生成包含深度骨架、关节关键点、夹爪几何、末端热力图和坐标轴的RGB图像场。动作条件直接变成像素级图像，与目标视频处于同一表征空间。
+  2. **事件感知双向融合**：在视频流和KVAF流之间插入稀疏的双向交叉注意力。增加一个事件预测分支，输出一个“事件门控（Event Gate）”和“事件潜变量”。门控值直接缩放交叉注意力的信息交换强度，决定当前层到底要注入多少动作几何信息，或回传多少场景反馈。
+- **架构细节**: 双分支潜空间DiT结构。视频和KVAF分别过同一个预训练VAE得到潜变量，Patch化后进入两条并行流。KVAF分支是视频DiT层的完整深度拷贝，保证动作几何不被过度压缩。仅在预设的稀疏层（如第4/7/10层）插入融合模块进行跨流交互。训练和推理阶段均对Wan2.2骨干采用LoRA（rank=32）微调。
+- **核心 Loss**: 采用双分支Flow Matching主Loss（视频去噪 + KVAF重建）+ 事件差异潜变量监督Loss（EDLS）。EDLS将真实视频序列的帧间绝对差值（$|I_t - I_{t-1}|$）过VAE编码得到动态变化目标，直接MSE监督融合模块输出的事件潜变量。此举让事件分支不只是一个辅助头，而是真正塑造跨流门控的注意力分布。
+
+**3. 实验结果**
+- **数据集和baseline**: 数据集为 WorldArena 基准下的 Robotwin 数据。对比方法涵盖 CogVideoX, WoW, 原生 Wan 2.2, TesserAct, Cosmos-Predict 2.5, Genie Envisioner 等主流视频/机器人世界模型。
+- **评价指标**: P3CScore（核心指标，取交互质量、轨迹精度、深度精度、透视一致性、指令遵循、语义对齐6项归一化指标的平均值×100，越高越好）。
+- **实验结果**: EA-WM 综合得分 76.60，在6项指标中5项SOTA。比最强基线 CogVideoX（71.08）高出 5.52 分。关键增益集中在动作相关项：交互质量从 0.594→0.682，轨迹精度从 0.353→0.430，深度与透视一致性也同步提升。消融表明：去掉KVAF会导致轨迹和深度大幅下滑；去掉事件融合会破坏物体状态一致性。两者结合能同时保证动作精准跟随和物理交互真实感。
+
+---
+
+
+### 8. 🔥 [TriRelVLA: Triadic Relational Structure for Generalizable Embodied Manipulation] (TriRelVLA：面向可泛化具身操作的三元关系结构)
+- **研究机构**: `新加坡国立大学 (NUS), 华中科技大学 (HUST)`
+- **Arxiv ID**: `2605.05714` | [点击跳转](https://arxiv.org/abs/2605.05714)
+
+**0. 论文标题**
+- **英文标题**: TriRelVLA: Triadic Relational Structure for Generalizable Embodied Manipulation
+- **中文标题**: TriRelVLA：面向可泛化具身操作的三元关系结构
+- **研究机构**: 新加坡国立大学 (NUS), 华中科技大学 (HUST)
+
+**1. 整体逻辑**
+- **研究任务**: 视觉-语言-动作（VLA）模型下的机器人具身操作策略生成。
+- **研究动机**: 现有VLA直接用隐式图像特征输入LLM，导致外观、背景和场景布局耦合，策略极易受视觉变化干扰，在未见场景/物体/任务上泛化崩溃。前期尝试加入结构化表征（如目标框、语义图）大多只描述场景静态语义，未捕捉与动作直接相关的动态交互关系，动作预测仍依赖外观统计。
+- **本质改动**: 废弃全图隐式特征流，提取“物体-机械手-任务”三元显式关系结构作为中间瓶颈表征。通过图结构过滤背景噪声，仅保留动作决策核心依赖的交互关系，再送大模型生成动作。
+- **技术溯源**: 基于 OpenVLA 主流 VLA 范式改造。视觉前端采用 SigLIP（语义）+ VGGT（3D几何）提取特征，动作后端接入开源LLM架构。
+
+**2. 技术拆解**
+- **重点改进**: 将“感知-动作”映射改为“三元关系提取 -> 关系图消息传递 -> 关系瓶颈压缩 -> 条件化动作生成”的显式管线。用可学习的结构化Query替代全局ViT Patch，强制模型聚焦动作相关区域。
+- **架构细节**:
+  - **输入**: 多视角RGB、机器人本体状态、自然语言指令。
+  - **三元表征提取**: 视觉特征与语言特征分别编码。用Query-based注意力从3D视觉特征中提取候选物体Token和机械手Token（机械手Query由本体状态引导）；用4类Query从指令中解耦出动作、角色、约束、阶段Token。
+  - **关系图构建**: 以Task Token为引导，通过Cross-Attention更新物体/手机械Token作为图节点。定义4种边（任务-物、任务-手、物-手、物-物），边向量显式编码相对位置、相对位姿、距离、接触概率等几何先验。使用关系感知图Transformer进行节点特征更新，边特征直接注入Attention的Key和Value中。
+  - **动作生成**: 更新后的图节点通过软注意力池化压缩为 $K$ 个关系瓶颈Token，经MLP投影对齐到LLM的Embedding空间，与指令Token拼接后输入LLM，直接回归连续动作参数。
+- **核心 Loss**: $\mathcal{L}_{total} = \mathcal{L}_{act} + \lambda_o\mathcal{L}_{obj} + \lambda_h\mathcal{L}_{hand}$。主Loss为动作参数的L1回归；辅助Loss为BCE，强制物体和机械手Token的Attention热力图与人工/半自动标注的分割Mask对齐，防止隐式表征漂移。
+
+**3. 实验结果**
+- **数据集和baseline**: 预训练使用 OXE 大规模数据集与 DROID 真实数据集（本文额外为DROID半自动标注了手/物Mask）。泛化评估使用 LIBERO 仿真基准及自建的真实数据集 CSOT-Bench（严格控制背景、视角、物体类别/形状/位置、任务组合变量）。Baseline 对比了 OpenVLA 等隐式VLA，以及引入区域/图结构的前期工作。
+- **评价指标**: 任务成功率（Success Rate）。核心考察常规微调任务表现，以及跨场景（Cross-Scene）、跨物体（Cross-Object）、跨任务组合（Cross-Task）的零样本/少样本泛化成功率。
+- **实验结果**: 在已见任务微调上，性能与现有最强基线持平。在三个维度的泛化测试中均取得明确提升（达到SOTA），模型对背景纹理、光照变化和新物体形状表现出强鲁棒性。消融实验验证：移除关系图或移除Mask对齐辅助Loss，泛化性能显著下降，证明“三元关系瓶颈+显式几何边”是提升数据效率和组合泛化的关键。
+
+---
+</script>
+            <script>
+                const rawMdElement = document.getElementById('raw-markdown');
+                if (rawMdElement) {
+                    document.getElementById('content').innerHTML = marked.parse(rawMdElement.textContent);
+                    // 渲染后触发公式排版
+                    if (window.MathJax && window.MathJax.typesetPromise) {
+                        window.MathJax.typesetPromise();
+                    }
+                }
+                function copySources() { /* 原代码保持不变 */ }
+            </script>
+        </body>
+        </html>
+        
