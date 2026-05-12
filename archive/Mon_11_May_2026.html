@@ -1,0 +1,210 @@
+
+        <!DOCTYPE html>
+        <html lang="zh-CN">
+        <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>🤖 具身大模型简报 - Mon, 11 May 2026 (VLA: 5 of 47 entries)</title>
+            <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.2.0/github-markdown.min.css">
+            <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+            <script>
+                window.MathJax = {
+                    tex: { inlineMath: [['$', '$'], ['\\(', '\\)']], displayMath: [['$$', '$$'], ['\\[', '\\]']] },
+                    options: { skipHtmlTags: ['script', 'style', 'textarea'] }
+                };
+            </script>
+            <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+            <style>
+                .markdown-body { box-sizing: border-box; min-width: 200px; max-width: 980px; margin: 0 auto; padding: 45px; }
+                @media (max-width: 767px) { .markdown-body { padding: 15px; } }
+            </style>
+        </head>
+        <body class="markdown-body">
+            <a href='../index.html' style='margin-bottom:20px; display:block;'>← 返回主索引</a>
+            <h1>🤖 具身大模型简报 - Mon, 11 May 2026 (VLA: 5 of 47 entries)</h1>
+            <div id="content"></div>
+            
+            <script type="text/markdown" id="raw-markdown">### 1. 🔥 [NoiseGate: Learning Per-Latent Timestep Schedules as Information Gating in World Action Models] (NoiseGate：在世界动作模型中将逐潜变量时间步调度学习为信息门控)
+- **研究机构**: `清华大学, 北京大学, 京东AI Infra, 天津大学`
+- **Arxiv ID**: `2605.07794` | [点击跳转](https://arxiv.org/abs/2605.07794)
+
+**0. 论文标题**
+- **英文标题**: NoiseGate: Learning Per-Latent Timestep Schedules as Information Gating in World Action Models
+- **中文标题**: NoiseGate：在世界动作模型中将逐潜变量时间步调度学习为信息门控
+- **研究机构**: 清华大学, 北京大学, 京东AI Infra, 天津大学
+
+**1. 整体逻辑**
+- **研究任务**: 具身智能中的联合视频-动作生成（World Action Models）。给定当前观测和语言指令，同时去噪生成未来多帧潜在画面（Latent）和对应的机器人动作序列。
+- **研究动机**: 现有 WAM 在去噪推理时，默认所有未来帧共享同一个时间步标量 `t`。这相当于强行假设每一帧对动作预测的“可靠性”完全一致。但实际任务中，不同时间帧的视觉信息密度和重要性差异很大（例如抓取关键瞬间 vs 平稳移动阶段）。固定调度浪费了模型按需分配注意力的自由度。
+- **本质改动**: 将逐帧的时间步调度（Timestep Schedule）重构为可学习的“信息门控”策略。通过动态调节每一帧的噪声水平，控制该帧在共享注意力机制中向动作 Token 传递特征的权重，噪声越高，门控越关；噪声越低，门控越开。
+- **技术溯源**: 骨干基于 Mixture-of-Transformers (MoT) 架构（融合 Wan 2.2 视频 DiT 与动作 Expert DiT），训练底座借鉴 Diffusion Forcing 的独立 Token 噪声采样，策略优化采用 DeepSeek 提出的 GRPO 强化学习算法。
+
+**2. 技术拆解**
+- **重点改进**: 废除全局共享标量调度，引入轻量级门控策略网络（GPN）。去噪过程中，GPN 根据当前状态动态输出每个未来帧的时间步衰减量。动作序列仍保持全局同步调度以保证执行轨迹稳定，仅对视觉上下文的去噪节奏进行任务自适应调整。
+- **架构细节**: 
+  - 骨干结构：块级双向（Chunk-bidirectional）MoT。视频 Token 与动作 Token 拼接输入，共享 Self-Attention，各自保留独立的 FFN。当前观测帧 `v0` 锁定时间步为 0。
+  - 策略网络（GPN）：轻量时空编码器 + Squashed-Gaussian 策略头。输入为当前含噪视频块、各帧当前时间步及干净观测 `v0`。输出为相对缩放因子 `r ∈ (0,2)`，逐帧时间步衰减计算为 `Δt_f = δt * r_f`（`δt` 为默认调度步长）。
+  - 训练流程：两阶段解耦。Phase 1 用逐帧独立时间步采样对 WAM 骨干进行监督微调，使其具备处理异构噪声分布的能力；Phase 2 冻结骨干，仅训练 GPN。
+- **核心 Loss**: 纯 GRPO 损失，无 KL 散度约束（策略从零训练）。奖励为环境返回的稀疏二值任务成功信号（0/1）。通过组内相对归一化计算优势值 `A`，结合重要性采样比率裁剪（Clipping）和熵正则化项更新策略参数。损失仅作用于 GPN，主干梯度断开。
+
+**3. 实验结果**
+- **数据集和baseline**: RoboTwin 随机场景操作基准（物体位姿、颜色、背景完全随机化）。对比方法：Fast-WAM, LingBot-VA, π0.5, Motus；消融基线：共享标量调度（Shared-t）、模仿学习微调骨干（Stage-1 WAM）、手工设计单调调度。
+- **评价指标**: 每个任务 rollout 100 个 Episode，计算平均任务成功率（%）。
+- **实验结果**: NoiseGate 平均成功率达 94.28%，较同骨干监督微调版本（Stage-1 WAM, 92.58%）提升 1.7%，全面优于其他 WAM/VLA 基线。收益集中在中等难度或需精细时序对齐的任务上（如 Hanging Mug +9%，Put Object Cabinet +7%）。在已接近天花板（>98%）的任务上保持持平。消融实验显示，“独立噪声训练底座 + GPN 学习”缺一不可，相比传统共享标量调度直接提升 10 个百分点。验证了按需控制视觉信息流入动作解码器的有效性。
+
+---
+
+
+### 2. 🔥 [Is the Future Compatible? Diagnosing Dynamic Consistency in World Action Models] (未来预测相容吗？诊断世界动作模型中的动态一致性)
+- **研究机构**: `National Yang Ming Chiao Tung University（台湾阳明交通大学）`
+- **Arxiv ID**: `2605.07514` | [点击跳转](https://arxiv.org/abs/2605.07514)
+
+**0. 论文标题**
+- **英文标题**: Is the Future Compatible? Diagnosing Dynamic Consistency in World Action Models
+- **中文标题**: 未来预测相容吗？诊断世界动作模型中的动态一致性
+- **研究机构**: National Yang Ming Chiao Tung University（台湾阳明交通大学）
+
+**1. 整体逻辑**
+- **研究任务**: 诊断世界动作模型（WAM）生成轨迹的物理动力学可靠性，并设计一种无需额外训练的测试时（Test-Time）候选动作筛选策略。
+- **研究动机**: 现有 WAM 能生成视觉合理的未来画面，但“画面好看”不等于“动作与状态变化在动力学上匹配”。同时，多数 WAM 未显式训练 Value Head，测试时面对多条采样轨迹缺乏低成本、无监督的排序依据。
+- **本质改动**: 将“预测未来”与“真实执行后状态”的匹配度量化为**动作-状态一致性**指标；发现并界定低动态场景下“背景坍缩”导致的虚高一致性盲区；提出**未来共识（Future Consensus）**策略，用多路预测的均值替代环境真实反馈进行轨迹排序。
+- **技术溯源**: 直接作用于现有开源/典型 WAM 架构：Cosmos-Policy（联合预测型）与 LingBot-VA（逆动力学型）。不改动模型主干，纯推理时插件。
+
+**2. 技术拆解**
+- **重点改进**: 
+  1. **一致性度量**：在 VAE 解码前的潜在特征空间计算预测状态与真实状态的 MSE 距离，转为指数形式的标量一致性分数，避开像素级噪声干扰。
+  2. **失效边界界定**：发现任务失败时轨迹常进入“背景坍缩”状态（画面静止、物体无交互）。此时预测极易且虚高一致性分数，与任务目标脱钩。通过监测潜在状态变化幅度 $\Delta z_t$ 可识别该失效区。
+  3. **共识筛选算法**：采样 $N$ 条候选轨迹，计算其预测未来的空间均值 $\bar{o}$ 作为伪真实基准。各分支计算与 $\bar{o}$ 的一致性得分，采用 Winner-Takes-All 直接选出最优动作，避免对非欧动作空间做无效平均。
+- **架构细节**: 无新增模块。输入为历史图像、本体感觉与指令，模型并行输出 $N$ 条未来观测与动作序列。核心计算仅涉及潜在向量求平均与距离度量。一致性公式：$c_t = \exp(-\alpha \cdot d(z_{pred}, z_{target}))$，其中 $\alpha=0.1$。测试时策略完全前向计算，不依赖梯度或环境重置。
+- **核心 Loss**: 无。本文为纯诊断与推理方法，不涉及模型微调。验证阶段仅使用归一化一致性分数配合简单逻辑回归验证其与任务成功率的相关性；部署阶段零额外 Loss。
+
+**3. 实验结果**
+- **数据集和baseline**: 数据集：RoboCasa（24个厨房操作任务）、RoboTwin 2.0。Baseline：原始 WAM 直接执行、带 Value Head 的排序、以及需环境逐一重置执行的理想一致性排序（Oracle 上限）。
+- **评价指标**: 任务成功率（SR）；一致性分数区分成功/失败轨迹的 ROC AUC 与 Cohen's d 效应量；推理延迟开销。
+- **实验结果**: 
+  1. **诊断有效性**：一致性分数能显著区分成败轨迹，AUC 达 0.77（Cosmos-Policy）与 0.88（LingBot-VA），趋势与训练好的 Value 预测高度一致。
+  2. **性能提升**：共识筛选策略在零训练、无 Reward 建模下，将 RoboCasa SR 从 66.6% 提至 **67.3%**（逼近 Value Head 的 67.4%），将 RoboTwin 2.0 SR 从 90.2% 提至 **93.0%**。
+  3. **工程开销**：在 8 GPU 并行设置下采样 $N=8$，额外计算与排序延迟仅约 **0.7ms**，可直接嵌入现有 WAM 推理管线。
+
+---
+
+
+### 3. 🔥 [MemCompiler: Compile, Don’t Inject — State-Conditioned Memory for Embodied Agents] (MemCompiler：编译而非注入——面向具身智能体的状态条件记忆机制)
+- **研究机构**: `中国科学技术大学（一作单位）、华中科技大学、微软研究院、南京大学、清华大学 AIR`
+- **Arxiv ID**: `2605.07594` | [点击跳转](https://arxiv.org/abs/2605.07594)
+
+**0. 论文标题**
+- **英文标题**: MemCompiler: Compile, Don’t Inject — State-Conditioned Memory for Embodied Agents
+- **中文标题**: MemCompiler：编译而非注入——面向具身智能体的状态条件记忆机制
+- **研究机构**: 中国科学技术大学（一作单位）、华中科技大学、微软研究院、南京大学、清华大学 AIR
+
+**1. 整体逻辑**
+- **研究任务**: 解决具身智能体在执行长序列任务时，如何按需、高效地调用历史跨任务经验（Memory）指导当前决策。
+- **研究动机**: 现有方法普遍采用“开局一次性全量注入”(AMMI) 范式。随着任务推进，静态注入的记忆会与不断变化的环境状态严重脱节，导致模型注意力被无关信息稀释（Attention Dilution）。这不仅无法提升小尺寸执行器的表现，反而常使其性能低于无记忆基线，且带来不必要的计算开销。
+- **本质改动**: 将“静态全量注入”改为“基于当前执行状态的动态编译”(SCMC)。引入轻量级 Memory Compiler，在每个决策步实时评估记忆的相关性，只挑选并编译当前需要的片段下发给执行器。
+- **技术溯源**: 基于 Qwen 系列开源多模态大模型（Qwen-2.5/3/3.5-VL 等）作为执行器与编译器底座，强化学习阶段采用 GRPO 算法。
+
+**2. 技术拆解**
+- **重点改进**: 
+  1. 维护结构化“简要状态”(Brief State)，实时跟踪子任务进度与环境已知事实，替代原始观测序列，为编译器提供精确的决策上下文。
+  2. Memory Compiler 在每个步长做四选一决策：仅下发经验、仅更新状态、两者混合、或不下发（NoAction）。
+  3. 引入 Soft-Mem 双通道输出：文本通道输出可解释的策略指导；潜空间通道输出软向量（Soft Tokens），直接注入执行器的 Embedding 层，保留视觉布局、空间关系等文本难以编码的感知信息。
+- **架构细节**:
+  - 输入：当前视觉观测 $o_t$ + 结构化 Brief State $b_t$ + 任务初始检索的记忆池 $\mathcal{M}$。
+  - 编译器工作流：先自回归生成文本指导；随后在文本末尾追加 $N$ 个特殊 `[UNK]` token，提取其最后一层隐状态，通过可学习投影映射到执行器 embedding 空间的均值和对数方差，采样得到软向量 $m_{\text{soft}}^{*,t}$。
+  - 训练流程：两阶段训练。先进行 SFT 联合优化文本、动作与软记忆；固定执行器，用 GRPO 对编译器策略进行强化学习微调。
+- **核心 Loss**:
+  - SFT 阶段：$\mathcal{L}_{SFT} = \mathcal{L}_{text} + \mathcal{L}_{action} + \lambda_{soft}\mathcal{L}_{soft}$
+  - $\mathcal{L}_{soft}$ 由两部分构成：语义对齐项（通过预测执行器 embedding 保证软向量承载记忆中的感知内容）+ 正交互补约束项（惩罚软向量特征与文本特征的余弦相似度，强制潜空间通道补充而非复述文本信息，防止特征坍缩）。
+  - RL 阶段：标准 GRPO 损失，基于二值任务成功奖励优化编译器的步长决策分布。
+
+**3. 实验结果**
+- **数据集和baseline**: 在 AlfWorld、EmbodiedBench (EB-ALFRED/EB-Habitat)、ScienceWorld 三个具身基准测试。对比基线为无记忆模型 (No Mem) 及主流记忆系统 (Mem0, LangMem, G-Mem, A-Mem 等，均为 AMMI 范式)。底座覆盖 Qwen 开源系列及 GPT-5.2、Gemini-3-flash 闭源模型。
+- **评价指标**: 任务整体成功率（按基础能力、常识推理、复杂指令跟随、视觉、空间推理、长程规划6个维度细分）；额外报告单步推理延迟与输入 Token 数量。
+- **实验结果**:
+  - 精度：在所有开源基座上稳定超越无记忆基线，EB-ALFRED 提升 +110%，ScienceWorld 提升 +129%。彻底解决了 AMMI 在小模型上“加记忆反降分”的问题。
+  - 模型对比：Qwen-3.5-27B + MemCompiler 在 AlfWorld 上持平 Gemini-3-flash，在 EB-Habitat 上超越无记忆的 GPT-5.2 和 Gemini-3-flash，缩小了开闭源差距。
+  - 效率：因执行器仅处理精炼的状态相关片段，相比 AMMI，单步输入 Token 减少约 60%，单步推理延迟从 0.30s 降至 0.12s。
+
+---
+
+
+### 4. 🔥 [How to utilize failure demo data?: Effective data selection for imitation learning using distribution differences in attention mechanism] (如何利用失败演示数据？基于注意力机制分布差异的模仿学习有效数据选择)
+- **研究机构**: `早稻田大学 (Waseda University), 富士通 (Fujitsu Limited)`
+- **Arxiv ID**: `2605.07560` | [点击跳转](https://arxiv.org/abs/2605.07560)
+
+**0. 论文标题**
+- **英文标题**: How to utilize failure demo data?: Effective data selection for imitation learning using distribution differences in attention mechanism
+- **中文标题**: 如何利用失败演示数据？基于注意力机制分布差异的模仿学习有效数据选择
+- **研究机构**: 早稻田大学 (Waseda University), 富士通 (Fujitsu Limited)
+
+**1. 整体逻辑**
+- **研究任务**: 机器人离线模仿学习，具体为仿真环境下的机械臂方块抓取与抬升任务。
+- **研究动机**: 实际遥操作采集必然混入失败轨迹。成功与失败的动作/视觉分布不同，直接混合训练会导致策略学习不稳定、方差变大。现有利用失败数据的方法多依赖人工清洗、在线自主试错或额外标注，工程成本高。需要一种能直接、稳定消化已收集失败数据的离线方案。
+- **本质改动**: 在Transformer自注意力中注入样本专属的隐向量（PB），利用KL散度强制拉开成功与失败样本的注意力分布模式。推理时根据初始画面检索“成功模式”的PB引导动作；训练后利用注意力差异度量化失败样本，筛选出与成功轨迹分布接近的“惜败”数据用于重训。
+- **技术溯源**: 基于 ACT (Action Chunking with Transformers) 架构，视觉特征提取使用 ResNet18。未使用VLA或LLM大模型基座，属于轻量级Transformer策略网络。
+
+**2. 技术拆解**
+- **重点改进**: 
+  1. **PB注入注意力**：为每条轨迹分配一个可学习的5维隐向量（PB），通过独立线性层映射后加到Decoder自注意力的 Query 和 Value 上，微调注意力权重分布。
+  2. **分布解耦正则**：训练时对比同一输入在“自身标签PB”和“异标签PB”下的注意力图，用KL散度强制两者分离，使PB显式编码成功/失败的行为差异。
+  3. **数据筛选与推理引导**：训练结束后，计算各失败样本与所有成功样本的注意力KL距离，选距离小的样本重训。推理时不直接生成PB，而是用初始俯视图特征在成功演示库中做最近邻检索，复用相似成功样本的PB。
+- **架构细节**: 输入为双视角RGB图像（224×224）+ 14维机器人状态。动作分块长度固定为100步。PB形状为 `[100, 5]`（每步动作对应一个5维向量），全零初始化，与主干权重联合优化。PB仅作用于Decoder自注意力层，不改变Encoder和Cross-Attention结构。
+- **核心 Loss**: `L = L_ACT + λ_kl * L_KL`。`L_ACT` 为ACT原始的动作预测MSE损失。`L_KL = -D_KL(A_positive || A_negative)`，负号表示最大化同输入下正/负PB产生的注意力分布差异。`λ_kl` 设为较小权重，确保KL项仅起正则引导作用，不破坏动作拟合。
+
+**3. 实验结果**
+- **数据集和baseline**: robosuite仿真环境（7轴Panda机械臂抬方块）。采集50条成功+50条失败遥操作轨迹。Baseline为标准ACT（仅成功数据训练 / 全量数据混合训练）。对比策略：随机抽取失败数据 vs 本文KL指标筛选失败数据。
+- **评价指标**: 任务成功率（100次独立评估 × 5个随机种子取平均值与方差）。
+- **实验结果**: 
+  - ACT仅用成功数据成功率 71.0%；直接混合全量数据微升至 71.6%（无实质提升且方差增大）。
+  - 仅引入PB机制（无失败数据），成功率提升至 74.2%，证明结构改动本身有效。
+  - 本文完整方法（PB+KL正则混合训练）达到最高 77.8%。
+  - 失败数据筛选有效性：KL差异值**小**（注意力模式接近成功）的失败数据重训效果最好；差异值大或随机选择的子集均会拉低性能。结论明确：与成功轨迹边界接近的“惜败”数据比完全跑偏的数据更具学习价值。
+
+---
+
+
+### 5. 🔥 [Learning Visual Feature-Based World Models via Residual Latent Action] (基于残差潜在动作的视觉特征世界模型学习)
+- **研究机构**: `Rutgers University, Purdue University, University of Wisconsin-Madison`
+- **Arxiv ID**: `2605.07079` | [点击跳转](https://arxiv.org/abs/2605.07079)
+
+**0. 论文标题**
+- **英文标题**: Learning Visual Feature-Based World Models via Residual Latent Action
+- **中文标题**: 基于残差潜在动作的视觉特征世界模型学习
+- **研究机构**: Rutgers University, Purdue University, University of Wisconsin-Madison
+
+**1. 整体逻辑**
+- **研究任务**: 基于视觉特征（DINO tokens）的机器人世界模型动态预测，并基于该模型实现无动作视频模仿学习、纯离线视频的视觉强化学习。
+- **研究动机**: 现有视频生成类世界模型（Diffusion）计算开销大、长程易幻觉；现有特征空间模型（如DINO-WM）采用直接回归，在复杂3D交互中预测会模糊或崩塌；若直接在超高维DINO特征上做生成模型，会丧失特征建模轻量、稳定的初衷。
+- **本质改动**: 放弃预测绝对未来特征或在高维特征空间做全生成，改为建模“状态残差”。提出残差潜在动作（RLA）表示，将世界模型的预测目标从高维绝对特征降维到紧凑的残差动态向量，再用流匹配（Flow Matching）预测该向量，最后结合当前状态解码出未来特征。
+- **技术溯源**: 特征提取基于 DINOv3；动态预测采用 Flow Matching（流匹配）；策略骨干基于标准 ResNet 与 LoRA，无大型视觉语言模型基座。
+
+**2. 技术拆解**
+- **重点改进**: 提出 RLA 表示与 RLA-WM 架构。RLA 将相邻帧 DINO 特征的差值 $s_{t+h} - s_t$ 编码为低维隐向量 $z$，该向量天然编码了物理转移的低维流形。RLA-WM 不再回归绝对特征，而是以 $s_t$ 和动作序列为条件，在紧凑的 $z$ 空间内运行流匹配预测动态，最后由解码器输出 $s_{t+h}$。
+- **架构细节**: 分两阶段。1）RLA自编码器预训练：Encoder 接收特征残差与可学习Query，输出低维 $z$；Decoder 以 $s_t$ 和 $z$ 为输入重建 $s_{t+h}$。2）RLA-WM 训练：条件网络（Self-Attention）一次性编码当前特征与动作，固定后作为条件输入。流匹配网络在低维 $z$ 空间内迭代求解ODE得到未来 $z$，再送入冻结的 Decoder。推理时仅迭代低维空间，避免高维特征直接参与扩散循环。
+- **核心 Loss**: RLA-WM 训练仅使用流匹配的速度场 MSE Loss（监督目标为真实速度与预测速度之差 $v^* = z - \epsilon$），不引入额外的特征或图像重建 Loss。自编码器预训练阶段使用 $s_{t+h}$ 的重建 MSE Loss。
+
+**3. 实验结果**
+- **数据集和baseline**: 仿真集 ManiSkill（多机械臂/多任务）与真实数据集 IWS（ALOHA双臂）。对比基线：特征回归（DINO-WM）、视频扩散（Vid2World）、特征空间扩散（RAE）、特征空间流匹配（FM-WM）。下游潜在动作对比：DINO CLS、UniVLA、AdaWorld。
+- **评价指标**: 预测质量看 LPIPS（感知距离）、SSIM（结构相似）、DINO L1距离及单次推理 FLOPs；策略性能看任务成功率（SR）。
+- **实验结果**: 
+  - **预测质量**: RLA-WM 在所有指标上全面领先。ManiSkill 上 LPIPS 降至 0.071（DINO-WM为0.156，Vid2World为0.199），且长程预测无模糊/崩塌。计算量仅 3.5T FLOPs，效率接近直接回归模型，远低于 Vid2World 的 1.1P。
+  - **无动作模仿**: 仅在 BC 策略上加一个线性层预测 RLA，平均成功率比纯 BC 基线提升 8.5%，比次优方法高 1.9%。在需空间推理的 Push-T 任务上提升最明显（15.2%）。
+  - **视觉强化学习**: 仅用离线视频训练世界模型，配合视频对齐奖励（VAR，基于预测特征与参考视频特征的L1距离）做 PPO。在 XArm/UR10e 任务上策略成功率显著提升（原文4.3节截断，未给出具体数值，但明确验证了纯离线世界模型内闭环RL的可行性）。
+
+---
+</script>
+            <script>
+                const rawMdElement = document.getElementById('raw-markdown');
+                if (rawMdElement) {
+                    document.getElementById('content').innerHTML = marked.parse(rawMdElement.textContent);
+                    // 渲染后触发公式排版
+                    if (window.MathJax && window.MathJax.typesetPromise) {
+                        window.MathJax.typesetPromise();
+                    }
+                }
+                function copySources() { /* 原代码保持不变 */ }
+            </script>
+        </body>
+        </html>
+        
