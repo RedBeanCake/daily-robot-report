@@ -363,20 +363,20 @@ if __name__ == "__main__":
         arxiv_content = deep_dive_only(papers_to_process)
         
         # 生成网页并推送（复用原函数）
-        # real_info, _, _ = scrape_arxiv(CATEGORIES[0]) 
+        real_info, _, _ = scrape_arxiv(CATEGORIES[0]) 
         
-        # if real_info:
-        #     date_info = real_info
-        # else:
-        #     # 兜底：如果抓取失败，再使用当前的日期
-        #     date_info = {
-        #         "prefix": datetime.datetime.now().strftime('%a, %d %b %Y'), 
-        #         "total": "0" 
-        #     }
-        date_info = {
-            "prefix": "Mon, 13 May 2026", 
-            "total": "50" 
-        }
+        if real_info:
+            date_info = real_info
+        else:
+            # 兜底：如果抓取失败，再使用当前的日期
+            date_info = {
+                "prefix": datetime.datetime.now().strftime('%a, %d %b %Y'), 
+                "total": "0" 
+            }
+        # date_info = {
+        #     "prefix": "Mon, 13 May 2026", 
+        #     "total": "50" 
+        # }
         generate_archive_and_index(date_info, arxiv_content)
     else:
         # --- 模式 B：定时任务执行初筛汇报 ---
