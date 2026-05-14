@@ -1,0 +1,354 @@
+
+        <!DOCTYPE html>
+        <html lang="zh-CN">
+        <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>🤖 具身大模型简报 - Thu, 14 May 2026 (VLA: 8 of 66 entries)</title>
+            <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.2.0/github-markdown.min.css">
+            <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+            <script>
+                window.MathJax = {
+                    tex: { inlineMath: [['$', '$'], ['\\(', '\\)']], displayMath: [['$$', '$$'], ['\\[', '\\]']] },
+                    options: { skipHtmlTags: ['script', 'style', 'textarea'] }
+                };
+            </script>
+            <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+            <style>
+                .markdown-body { box-sizing: border-box; min-width: 200px; max-width: 980px; margin: 0 auto; padding: 45px; }
+                @media (max-width: 767px) { .markdown-body { padding: 15px; } }
+            </style>
+        </head>
+        <body class="markdown-body">
+            <a href='../index.html' style='margin-bottom:20px; display:block;'>← 返回主索引</a>
+            <h1>🤖 具身大模型简报 - Thu, 14 May 2026 (VLA: 8 of 66 entries)</h1>
+            <div id="content"></div>
+            
+            <script type="text/markdown" id="raw-markdown">### 1. 🔥 [Realtime-VLA FLASH: Speculative Inference Framework for Diffusion-based VLAs] (Realtime-VLA FLASH：基于扩散的 VLA 推测推理框架)
+- **研究机构**: `中国科学院计算技术研究所 (CAS), Dexmal, 南京大学等`
+- **Arxiv ID**: `2605.13778` | [点击跳转](https://arxiv.org/abs/2605.13778)
+
+**0. 论文标题**
+- **英文标题**: Realtime-VLA FLASH: Speculative Inference Framework for Diffusion-based VLAs
+- **中文标题**: Realtime-VLA FLASH：基于扩散的 VLA 推测推理框架
+- **研究机构**: 中国科学院计算技术研究所 (CAS), Dexmal, 南京大学等
+
+**1. 整体逻辑**
+- **研究任务**: 降低基于扩散的视觉 - 语言 - 动作模型（dVLA）的推理延迟，使其适用于高频控制的实时具身任务。
+- **研究动机**: 现有 dVLA（如 $\pi_0$）单次完整推理耗时过高（约 58ms），无法满足机械臂高频控制需求。虽然常用动作分块（chunking）减少重规划频率，但每次重规划仍需完整推理，延迟瓶颈未解。且现有推测推理（Speculative Inference）主要针对离散 token，难以直接迁移到连续动作空间的扩散模型。
+- **本质改动**: 将推测推理引入 dVLA。用轻量级 Draft 模型快速生成动作候选，利用流匹配（Flow Matching）特性并行验证动作一致性，仅在必要时回退到完整推理。
+- **技术溯源**: 基于 $\pi_0$ (Flow-matching dVLA) 架构，结合 LLM 推测推理思想。
+
+**2. 技术拆解**
+- **重点改进**:
+    1.  **双路径推理**: 区分完整路径（Full Path）和快速推测路径（Flash Path）。Flash 路径跳过耗时的 VLM Prefill，仅编码图像后送入 Draft 模型。
+    2.  **连续动作验证**: 利用流匹配训练的速度场特性，将 Draft 动作与噪声插值，通过主模型 Action Expert 并行预测中间时刻速度，重建终点并检查与 Draft 的距离一致性，无需完整去噪。
+    3.  **阶段感知回退**: 监测夹爪状态变化（开/合切换）作为精细操作阶段信号，强制回退到完整路径以防误差积累。
+- **架构细节**:
+    -   **Draft 模型**: 轻量级（约 1.1 亿参数），仅 1 个 Gemma Block + 线性动作头，并行输出动作块。
+    -   **主模型**: 原有 VLM（约 27 亿参数）+ Action Expert。
+    -   **输入输出**: 输入多模态观测（图像、语言、状态），输出未来动作块（位置、旋转、夹爪）。
+- **核心 Loss**:
+    -   **Draft 训练**: 监督回归损失（Supervised Regression），直接拟合目标动作块。
+    -   **验证机制**: 无额外 Loss，基于重建动作与 Draft 动作的距离阈值（Distance Threshold）判定接受前缀长度。
+
+**3. 实验结果**
+- **数据集和 baseline**:
+    -   **仿真**: LIBERO 四大套件（Spatial, Object, Goal, 10）。
+    -   **真机**: 传送带分拣任务（UR5 机械臂）。
+    -   **Baseline**: Torch-$\pi_0$, Triton-$\pi_0$ (Kernel 优化版)。
+- **评价指标**: 任务成功率 (SR)、平均推理延迟 (Latency)、加速比 (Speedup)。
+- **实验结果**:
+    -   **仿真**: 平均延迟从 58.0ms 降至 19.1ms（3.04 倍加速），成功率仅下降 0.3%（94.1% -> 93.8%）。Flash 路径承担了约 66.8% 的重规划回合。
+    -   **真机**: 在传送带速度达 15m/min 时仍能成功抓取，而 baseline 方法因延迟过高失败。
+    -   **消融**: 阶段感知回退机制显著提升了精细操作阶段（如放置物体）的成功率。
+
+---
+
+
+### 2. 🔥 [FrameSkip: Learning from Fewer but More Informative Frames in VLA Training] (FrameSkip：在 VLA 训练中从更少但信息量更大的帧中学习)
+- **研究机构**: `哈尔滨工业大学、中关村科学院、中关村人工智能研究院等`
+- **Arxiv ID**: `2605.13757` | [点击跳转](https://arxiv.org/abs/2605.13757)
+
+**0. 论文标题**
+- **英文标题**: FrameSkip: Learning from Fewer but More Informative Frames in VLA Training
+- **中文标题**: FrameSkip：在 VLA 训练中从更少但信息量更大的帧中学习
+- **研究机构**: 哈尔滨工业大学、中关村科学院、中关村人工智能研究院等
+
+**1. 整体逻辑**
+- **研究任务**: 视觉 - 语言 - 动作（VLA）策略的训练优化。
+- **研究动机**: 机器人演示轨迹中存在严重的“时序监督不平衡”。大部分帧是低变化的冗余片段（如接近物体、稳态运输），而决定任务成败的关键帧（如接触、抓取、释放）非常稀疏。均匀采样导致模型在关键时刻得到的监督信号不足。
+- **本质改动**: 不修改模型架构，仅在数据加载层（Data-layer）引入帧选择机制。通过计算帧重要性分数，训练时主动跳过低信息量帧，将优化预算集中在高价值帧上。
+- **技术溯源**: 基于 StarVLA 框架，VLM 骨干网络使用 Qwen3-4B-VL-Instruct，动作头使用 Diffusion Transformer (DiT)。
+
+**2. 技术拆解**
+- **重点改进**: 提出了一套轻量级的帧重要性评估公式，并在 DataLoader 中实现基于保留比例的帧剪枝与索引重映射。
+- **架构细节**: 
+    - **输入输出**: 输入为原始轨迹，输出为剪枝后的帧索引序列。模型结构、Action Head 及推理流程完全不变。
+    - **重要性评分**: 综合三项指标（归一化后加权）：动作变化重要性 (AVI, 0.6)、视觉 - 动作一致性 (VAC, 0.2)、任务进度先验 (TPI, 0.2)。额外保留夹爪状态突变帧。
+    - **训练策略**: 先全帧预热（Warmup），后混合采样。主设置下保留 20% 帧，每 5 个剪枝批次插入 1 个全帧批次作为上下文锚点，防止过拟合稀疏片段。
+- **核心 Loss**: 无新增 Loss。沿用基座模型的 Flow-matching 动作生成 Loss。本质是通过改变采样分布来调整梯度更新的重点。
+
+**3. 实验结果**
+- **数据集和 baseline**: 
+    - 数据集：RoboCasa-GR1（双臂桌面操作）、SimplerEnv（WidowX 泛化）、LIBERO（单臂语言条件）。
+    - Baseline：全帧训练（Full-Frame）、随机帧选择、仅动作变化选择、以及主流 VLA 模型（OpenVLA, GR00T 等）。
+- **评价指标**: 任务成功率（Success Rate %）。
+- **实验结果**: 
+    - 在仅保留 20% 帧的情况下，三个基准的宏观平均成功率从全帧训练的 66.50% 提升至 76.15%。
+    - 分基准看：RoboCasa-GR1 从 47.8% 升至 59.5%；SimplerEnv 从 55.2% 升至 71.55%。
+    - 消融实验证明，完整的评分组合优于单一指标，且混合采样策略优于纯剪枝。
+
+---
+
+
+### 3. 🔥 [Guide, Think, Act: Interactive Embodied Reasoning in Vision-Language-Action Models] (引导、思考、行动：视觉 - 语言 - 动作模型中的交互式具身推理)
+- **研究机构**: `Futian Laboratory, Harbin Institute of Technology, IDEA 等`
+- **Arxiv ID**: `2605.13632` | [点击跳转](https://arxiv.org/abs/2605.13632)
+
+**0. 论文标题**
+- **英文标题**: Guide, Think, Act: Interactive Embodied Reasoning in Vision-Language-Action Models
+- **中文标题**: 引导、思考、行动：视觉 - 语言 - 动作模型中的交互式具身推理
+- **研究机构**: Futian Laboratory, Harbin Institute of Technology, IDEA 等
+
+**1. 整体逻辑**
+- **研究任务**: 构建支持人工空间干预（如指点、画框）的 VLA 策略，实现具身推理的可 steering（可引导）和可修正。
+- **研究动机**: 现有 VLA 多为“感知即行动”的黑盒映射，OOD 下易错且无法修正；现有 CoT 方法虽可解释但推理过程封闭，无法利用外部空间信号纠正 Grounding 错误。
+- **本质改动**: 引入可选空间先验（点/框/轨迹）作为 VLM 推理的条件输入，并将慢速推理与快速控制异步解耦。
+- **技术溯源**: 基于 Qwen3-VL-2B 作为推理基座，结合 Flow-Matching 作为动作头。
+
+**2. 技术拆解**
+- **重点改进**: 提出 GTA 三阶段架构。**Guide 阶段**将空间先验序列化并 Token 化，与文本指令拼接；**Think 阶段**VLM 生成结构化空间视觉 CoT（任务分解/视觉 Grounding/运动草图）；**Act 阶段**采用异步设计，动作头高频读取 VLM 缓存的推理隐状态。
+- **架构细节**: 
+    - 输入：主视图 + 语言 + 可选空间先验（$P_{spatial}$）。
+    - 推理：Qwen3-VL-2B 生成 CoT 序列及隐状态 $H_{reasoning}$。
+    - 执行：Flow-Matching 动作头接收 $H_{reasoning}$ + 高频控制观测（腕部视图/本体感知），输出连续动作块。
+    - 频率：VLM 低频更新推理，动作头高频闭环控制。
+- **核心 Loss**: 两阶段训练。Stage 1 分别训练 VLM（自回归 Token 预测 Loss）和动作头（Flow Matching Loss）；Stage 2 联合微调。无额外辅助重建任务。
+
+**3. 实验结果**
+- **数据集和 baseline**: 自建 Interact-306K 数据集（基于 OXE/DROID 等自动标注空间 CoT）；对比主流 VLA 基线；提出 SimplerEnv-Plus 基准（含 OOD 视觉/语义干扰）。
+- **评价指标**: 任务成功率（Success Rate），重点评估 OOD 鲁棒性及人工干预后的恢复能力。
+- **实验结果**: 
+    - 域内（SimplerEnv WidowX）：成功率 81.2%，达到 SOTA。
+    - 域外（OOD）：在视觉偏移和空间模糊场景下，单次视觉交互即可显著提升成功率，优于纯自主方法。
+    - 实机部署：验证了异步架构在真实机器人上的低延迟有效性。
+
+---
+
+
+### 4. 🔥 [AttenA+: Rectifying Action Inequality in Robotic Foundation Models] (AttenA+：修正机器人基础模型中的动作不平等)
+- **研究机构**: `HKUST(GZ), HKU, USTC, IDEA Research, SUSTech, X-Humaniod`
+- **Arxiv ID**: `2605.13548` | [点击跳转](https://arxiv.org/abs/2605.13548)
+
+**0. 论文标题**
+- **英文标题**: AttenA+: Rectifying Action Inequality in Robotic Foundation Models
+- **中文标题**: AttenA+：修正机器人基础模型中的动作不平等
+- **研究机构**: HKUST(GZ), HKU, USTC, IDEA Research, SUSTech, X-Humaniod
+
+**1. 整体逻辑**
+- **研究任务**: 机器人基础模型（VLA/WAM）的动作策略学习，旨在提升复杂操作任务的成功率。
+- **研究动机**: 现有模型训练存在“时间同质性偏差”，即对所有时间步的动作赋予相同的 Loss 权重。实际上，机器人轨迹中低速段（如抓取、对齐）对精度要求高，高速段（如移动）容错率高，均匀加权导致模型在关键动作上优化不足。
+- **本质改动**: 引入基于速度场的动作注意力机制（Velocity-Field Attention），利用动作速度的倒数作为物理先验，对 Loss 进行重加权，让模型更关注低速关键动作。
+- **技术溯源**: 架构无关（Architecture-agnostic），可插件式集成到 OpenVLA-OFT（判别式）、Fast-WAM、$\pi_0$/$\pi_{0.5}$（生成式/Flow Matching）等现有基座中。
+
+**2. 技术拆解**
+- **重点改进**: 不修改模型 backbone 结构，仅修改优化目标。计算真值动作的瞬时速度，通过映射函数（如 inverse, inverse squared）转化为权重，低速动作获得更高权重。
+- **架构细节**: 
+    - 输入：视觉、语言观测及真值动作序列。
+    - 处理：计算动作范数得到速度 $v_t$，映射为权重 $w_t$。
+    - 正则化：引入权重 clipping（防止静态步主导梯度）和 Loss 归一化（保持全局学习率稳定）。
+    - 规模：无额外参数增加。
+- **核心 Loss**: 
+    - 判别式模型：加权 L1 Loss。
+    - 生成式模型（Flow Matching）：加权 Flow Matching Loss。
+    - 无辅助重建任务，仅针对动作预测 Loss 进行加权。
+
+**3. 实验结果**
+- **数据集和 baseline**: 
+    - 数据集：Libero（模拟）、RoboTwin 2.0（模拟）、Real Franka（真机）。
+    - Baseline：OpenVLA-OFT, Fast-WAM, $\pi_0$, $\pi_{0.5}$ 及各类 SOTA VLA 模型。
+- **评价指标**: 任务成功率（Success Rate, SR）、平均错误率（ER）。
+- **实验结果**: 
+    - Libero 基准：AttenA+OFT 达到 98.6% SR，比 OpenVLA-OFT 提升 1.5%；长程任务提升 2.1%。
+    - RoboTwin 2.0 基准：AttenA+WAM 达到 92.4% SR，比 Fast-WAM 提升 0.6%。
+    - 泛化性：在判别式和生成式架构上均有效，真机实验显示在精度敏感环节鲁棒性显著增强。
+
+---
+
+
+### 5. 🔥 [RotVLA: Rotational Latent Action for Vision-Language-Action Model] (RotVLA：基于旋转潜在动作的视觉 - 语言 - 动作模型)
+- **研究机构**: `北京大学，小米机器人，中科院自动化所 (CASIA)`
+- **Arxiv ID**: `2605.13403` | [点击跳转](https://arxiv.org/abs/2605.13403)
+
+**0. 论文标题**
+- **英文标题**: RotVLA: Rotational Latent Action for Vision-Language-Action Model
+- **中文标题**: RotVLA：基于旋转潜在动作的视觉 - 语言 - 动作模型
+- **研究机构**: 北京大学，小米机器人，中科院自动化所 (CASIA)
+
+**1. 整体逻辑**
+- **研究任务**: 面向具身智能的视觉 - 语言 - 动作（VLA）模型预训练，旨在利用异构数据（多机器人 + 人类视频）学习通用的动作表示。
+- **研究动机**: 现有潜在动作模型（LAM）多采用离散量化（如 VQ-VAE），导致三个问题：(1) 易退化为简单的帧重建；(2) 离散空间限制了连续物理动作的表达能力；(3) 缺乏物理意义（如尺度、动作组合性）。
+- **本质改动**: 将潜在动作从离散 Token 改为连续旋转群 SO(n) 元素，利用矩阵乘法天然支持动作组合；引入三元组帧学习框架，强制模型学习时序动态而非单纯重建。
+- **技术溯源**: 基于 InternVL3.5-1B 作为 VLM 基座，动作头采用 Flow Matching（流匹配）架构。
+
+**2. 技术拆解**
+- **重点改进**:
+    1.  **连续旋转潜在动作**: 潜在动作表示为 n×n 旋转矩阵。模型预测 unconstrained 矩阵后，通过 SVD 正交投影强制满足 SO(n) 约束，保留连续性的同时具备几何结构。
+    2.  **三元组学习框架 (Triplet Learning)**: 输入连续三帧 (t, t+1, t+2)，分别计算 t→t+1 和 t+1→t+2 的潜在动作，并通过矩阵乘法组合得到 t→t+2 的预测动作，监督其重建第 3 帧。防止模型走捷径只重建下一帧。
+    3.  **统一动作专家 (Unified Action Expert)**: 微调阶段，动作头同时去噪潜在动作（作为高层规划器）和机器人动作（作为底层控制器）。引入结构化注意力机制：潜在动作只关注视觉 - 语言 Token，机器人动作关注潜在动作 + 视觉 - 语言 Token。
+- **架构细节**:
+    -   **LAM 阶段**: 编码器使用冻结的 DINOv2 提取视觉特征 + 时空 Transformer，解码器为标准 Transformer。潜在动作维度 n=16。
+    -   **VLA 阶段**: 1.7B 参数量（视觉 encoder 304M, LM 752M, 动作头 305M, 潜在动作模型 290M）。动作头为 24 层 Diffusion Transformer (DiT)。
+    -   **输入输出**: 输入连续帧 + 语言指令；输出 SO(n) 潜在动作矩阵及机器人末端位姿（xyz + Rotate6D）。
+- **核心 Loss**:
+    -   **LAM 预训练**: 单步重建 Loss + 组合动作重建 Loss (三元组) + SoftVQ 的 KL 散度。
+    -   **VLA 预训练/微调**: 流匹配 Loss (预测速度场与真实速度场的 MSE)。微调时为潜在动作与机器人动作的联合流匹配 Loss。
+
+**3. 实验结果**
+- **数据集和 baseline**:
+    -   **数据**: 1700+ 小时异构数据（Open X-Embodiment, AGIBOT, RoboMIND, Ego4D 等）。
+    -   **Baseline**: OpenVLA, UniVLA, X-VLA, π0.5, GR00T-N1.6 等。
+- **评价指标**:
+    -   **仿真**: LIBERO benchmark (4 个子套件平均成功率), RoboTwin2.0 (清洁/随机场景成功率)。
+    -   **真机**: 双臂 ARX R5 平台，任务包括拾取放置、抽屉操作、叠杯子，评估成功率及抗干扰能力。
+    -   **效率**: 单步推理延迟。
+- **实验结果**:
+    -   **LIBERO**: 平均成功率 98.2%，优于 UniVLA (95.4%) 和 X-VLA (98.1%)。
+    -   **RoboTwin2.0**: 清洁场景 89.6%，随机场景 88.5%，优于 π0.5 (82.7%/76.8%) 和 Motus (88.7%/87.0%)。
+    -   **真机**: 在单臂和双臂任务上成功率均高于 π0.5，尤其在长程规划和抗干扰（背景变化、 Distractor）场景下优势明显。
+    -   **推理速度**: H20 服务器上 79ms/步，与 π0.5 (61ms) 相当，满足实时控制需求。
+
+---
+
+
+### 6. 🔥 [BlockVLA: Accelerating Autoregressive VLA via Block Diffusion Finetuning] (BlockVLA：通过块扩散微调加速自回归 VLA)
+- **研究机构**: `Xi'an Jiaotong University (西安交通大学)`
+- **Arxiv ID**: `2605.13382` | [点击跳转](https://arxiv.org/abs/2605.13382)
+
+**0. 论文标题**
+- **英文标题**: BlockVLA: Accelerating Autoregressive VLA via Block Diffusion Finetuning
+- **中文标题**: BlockVLA：通过块扩散微调加速自回归 VLA
+- **研究机构**: Xi'an Jiaotong University (西安交通大学)
+
+**1. 整体逻辑**
+- **研究任务**: 机器人视觉 - 语言 - 动作（VLA）策略生成，即根据图像和语言指令生成机器人动作序列。
+- **研究动机**: 现有自回归（AR）VLA 模型（如 OpenVLA）推理慢（逐个 token 生成）且长 horizon 任务误差累积严重；普通离散扩散模型虽能并行生成，但双向注意力机制导致无法复用 KV Cache，且去噪步数（NFE）多，实际加速有限。
+- **本质改动**: 将“全序列离散扩散”改为“块扩散（Block Diffusion）”。在块级别保持自回归因果性（以便复用 KV Cache），在块内部进行并行扩散去噪（以便加速生成）。
+- **技术溯源**: 基于 OpenVLA (Prismatic-7B) 进行微调，结合了离散扩散语言模型（dLLM）与块扩散（Block Diffusion）范式。
+
+**2. 技术拆解**
+- **重点改进**: 设计了块级掩码策略。动作序列被切分为多个块，生成第 $b$ 块时，前 $b-1$ 块作为条件上下文。相比全序列扩散，减少了重复计算并允许缓存前缀状态。
+- **架构细节**: 
+    -  backbone 沿用 OpenVLA 的 Transformer 结构。
+    - 动作离散化：每个时间步动作量化为 7 个 token（3 平移 +3 旋转 +1 夹爪），每个维度 256 bin。
+    - 训练策略：采用 Diffusion Forcing（前块条件带噪声）而非 Teacher Forcing（前块条件干净），使训练分布与推理时的迭代去噪更一致，增强鲁棒性。
+- **核心 Loss**: 块内 masked token 的交叉熵损失。仅对当前块内的 mask 位置计算 Loss，前块作为条件不参与 Loss 计算。
+
+**3. 实验结果**
+- **数据集和 baseline**: LIBERO 和 SimplerEnv 基准。对比基线为标准离散扩散 VLA 模型（DDVLA）。
+- **评价指标**: 任务成功率（Success Rate）、推理吞吐（Inference Throughput）、训练收敛速度。
+- **实验结果**: 
+    - 推理速度：比标准离散扩散基线快 3.3 倍（单卡 RTX 4090）。
+    - 性能表现：LIBERO 平均成功率 91.7%，优于基线的 83.2%。
+    - 训练效率：仅需 2 张卡训练 50k 步即可收敛，且在长 horizon 复杂任务上收敛显著更快。
+
+---
+
+
+### 7. 🔥 [Towards Long-horizon Embodied Agents with Tool-Aligned Vision-Language-Action Models] (面向长程具身智能体的工具对齐视觉 - 语言 - 动作模型)
+- **研究机构**: `上海交通大学 (Shanghai Jiao Tong University)`
+- **Arxiv ID**: `2605.13119` | [点击跳转](https://arxiv.org/abs/2605.13119)
+
+**0. 论文标题**
+- **英文标题**: Towards Long-horizon Embodied Agents with Tool-Aligned Vision-Language-Action Models
+- **中文标题**: 面向长程具身智能体的工具对齐视觉 - 语言 - 动作模型
+- **研究机构**: 上海交通大学 (Shanghai Jiao Tong University)
+
+**1. 整体逻辑**
+- **研究任务**: 解决 VLA 模型在长程具身任务（Long-horizon Tasks）中规划能力弱、难以恢复错误的问题。
+- **研究动机**: 现有 VLA 作为端到端控制器，难以兼顾长程分解与物理执行；现有 Agent 系统（如 SayCan）规划强但底层工具往往是手动定义的 API，物理执行能力弱于 VLA。需要结合 VLM 的规划能力与 VLA 的执行能力。
+- **本质改动**: 提出 **VLAs-as-Tools** 策略。不再让单个 VLA 负责全程，而是由高层 VLM Agent 负责规划，调用一组专用的 VLA 工具家族（VLA Tool Family）执行子任务。
+- **技术溯源**: 基于 OpenVLA, OpenVLA-OFT, $\pi_0.5$ 等开源 VLA 基座进行改进。
+
+**2. 技术拆解**
+- **重点改进**:
+    1.  **双向接口设计**: 定义 Agent 到工具的调用消息（工具家族标签 + 场景指令）和工具到 Agent 的反馈消息（执行进度信号），支持事件触发的重规划。
+    2.  **工具对齐后训练 (TAPT)**: 让 VLA 学会可靠地响应调用并反馈进度，而非仅优化任务成功率。
+- **架构细节**:
+    -   **输入**: 视觉观测 + 语言指令 + **工具家族标签** (如 grasp, place)。
+    -   **结构**: 共享预训练 VLA 骨干网络 + **工具家族残差适配器 (Tool-Family Residual Adapters)**。不同工具家族对应不同的低秩适配器 (LoRA 类似结构)，由标签路由选择，参数开销小。
+    -   **输出**: 机器人动作 + **进度信号** (0-1 连续值，由辅助头预测)。
+- **核心 Loss**:
+    -   **动作克隆 Loss**: 训练选定的残差路径复现子任务动作。
+    -   **进度预测 Loss**: MSE Loss，训练辅助头预测当前调用窗口的执行进度。
+    -   **RL 奖励**: 仅基于当前子任务调用是否完成（局部完成谓词），而非全程任务成功。
+
+**3. 实验结果**
+- **数据集和 baseline**:
+    -   **数据集**: LIBERO-Long (长程操作), RoboTwin (仿真), CALVIN。
+    -   **Baseline**: 原始 VLA (Standalone), 直接加规划器 (Direct Planner), 标准 SFT/RL 微调。
+- **评价指标**: 任务成功率 (Success Rate, SR)、调用保真度 (Non-biased Rate)。
+- **实验结果**:
+    -   **长程性能**: 在 LIBERO-Long 上，$\pi_0.5$ 成功率从 92.4% 提升至 **97.2%** (+4.8%)；在 RoboTwin 上，OpenVLA-OFT 成功率从 16.9% 提升至 **52.4%** (+35.5%)。
+    -   **调用保真度**: 相比 baseline，调用保真度 (Non-biased Rate) 提升约 **15-16 个百分点**，证明 VLA 更能忠实执行 Agent 的子任务指令。
+    -   **效率**: 工具家族残差适配器参数开销小，支持高效扩展多个专用工具。
+
+---
+
+
+### 8. 🔥 [What to Ignore, What to React: Visually Robust RL Fine-Tuning of VLA Models] (忽略什么，响应什么：VLA 模型的视觉鲁棒性 RL 微调)
+- **研究机构**: `香港科技大学 (HKUST), 微软亚洲研究院 (MSRA), 浙江大学`
+- **Arxiv ID**: `2605.13105` | [点击跳转](https://arxiv.org/abs/2605.13105)
+
+**0. 论文标题**
+- **英文标题**: What to Ignore, What to React: Visually Robust RL Fine-Tuning of VLA Models
+- **中文标题**: 忽略什么，响应什么：VLA 模型的视觉鲁棒性 RL 微调
+- **研究机构**: 香港科技大学 (HKUST), 微软亚洲研究院 (MSRA), 浙江大学
+
+**1. 整体逻辑**
+- **研究任务**: 提升 Vision-Language-Action (VLA) 模型在机器人操作任务中的视觉鲁棒性，特别是针对部署时的分布外（OOD）视觉变化。
+- **研究动机**: 现有的 RL 微调（如 PPO）只依赖任务成功奖励，无法区分哪些视觉变化是无关干扰（如背景纹理、干扰物），哪些是任务关键（如目标物体姿态）。导致策略对无关变化过于敏感，或对关键变化反应不足。
+- **本质改动**: 在 PPO 微调过程中引入两个辅助目标，利用成对的视觉变体直接约束动作分布：要求策略对任务无关变化保持动作不变（Invariance），对任务关键变化改变动作（Sensitivity）。
+- **技术溯源**: 基于 OpenVLA（自回归架构）和 $\pi_{0.5}$（Flow Matching 架构）进行 PPO 微调。
+
+**2. 技术拆解**
+- **重点改进**: 提出 PAIR-VLA 框架。核心是在训练步中为每个观测构造两个增强视图：
+    1.  **任务保持视图**：移除干扰物、更换背景纹理（任务状态不变）。
+    2.  **任务改变视图**：扰动目标物体姿态（任务状态改变）。
+- **架构细节**: 
+    - 输入：原始观测 + 任务保持视图 + 任务改变视图。
+    - 处理：三者通过同一个 VLA 策略网络前向传播，得到三个动作分布。
+    - 部署：仅使用原始观测，无额外推理成本。
+- **核心 Loss**: 总 Loss = PPO Loss + $\alpha \cdot \mathcal{L}_{inv}$ + $\beta \cdot \mathcal{L}_{sens}$
+    - **Invariance Loss**: 最小化原始视图与任务保持视图动作分布的 KL 散度（加 stop-gradient）。
+    - **Sensitivity Loss**: 最大化原始视图与任务改变视图动作分布的 KL 散度（带截断防止训练不稳定）。
+
+**3. 实验结果**
+- **数据集和 baseline**: 
+    - 环境：ManiSkill3 模拟器（Pick-and-Place 任务，含干扰物）。
+    - Baseline：标准 PPO 微调（无辅助目标）。
+    - 模型：OpenVLA 和 $\pi_{0.5}$。
+- **评价指标**: 任务成功率（Success Rate），在四种 OOD 场景下测试（未见过的纹理、光照、目标姿态、干扰物数量）。
+- **实验结果**: 
+    - 方法在所有 OOD 设置下均优于标准 PPO。
+    - **OpenVLA**: 平均成功率从 77.90% 提升至 87.00%（+9.10%）。
+    - **$\pi_{0.5}$**: 平均成功率从 46.25% 提升至 62.87%（+16.62%）。
+    - 泛化性：即使在训练中未专门构造光照变化的辅助目标，模型对未见光照变化也表现出更好的鲁棒性。
+
+---
+</script>
+            <script>
+                const rawMdElement = document.getElementById('raw-markdown');
+                if (rawMdElement) {
+                    document.getElementById('content').innerHTML = marked.parse(rawMdElement.textContent);
+                    // 渲染后触发公式排版
+                    if (window.MathJax && window.MathJax.typesetPromise) {
+                        window.MathJax.typesetPromise();
+                    }
+                }
+                function copySources() { /* 原代码保持不变 */ }
+            </script>
+        </body>
+        </html>
+        
