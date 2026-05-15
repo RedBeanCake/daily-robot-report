@@ -1,0 +1,194 @@
+
+        <!DOCTYPE html>
+        <html lang="zh-CN">
+        <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>🤖 具身大模型简报 - Fri, 15 May 2026 (VLA: 4 of 38 entries)</title>
+            <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.2.0/github-markdown.min.css">
+            <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+            <script>
+                window.MathJax = {
+                    tex: { inlineMath: [['$', '$'], ['\\(', '\\)']], displayMath: [['$$', '$$'], ['\\[', '\\]']] },
+                    options: { skipHtmlTags: ['script', 'style', 'textarea'] }
+                };
+            </script>
+            <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+            <style>
+                .markdown-body { box-sizing: border-box; min-width: 200px; max-width: 980px; margin: 0 auto; padding: 45px; }
+                @media (max-width: 767px) { .markdown-body { padding: 15px; } }
+            </style>
+        </head>
+        <body class="markdown-body">
+            <a href='../index.html' style='margin-bottom:20px; display:block;'>← 返回主索引</a>
+            <h1>🤖 具身大模型简报 - Fri, 15 May 2026 (VLA: 4 of 38 entries)</h1>
+            <div id="content"></div>
+            
+            <script type="text/markdown" id="raw-markdown">### 1. 🔥 [Pelican-Unified 1.0: A Unified Embodied Intelligence Model (UEI) for Understanding, Reasoning, Imagination and Action] (Pelican-Unified 1.0：面向理解、推理、想象与动作的统一具身智能模型)
+- **研究机构**: `北京人形机器人创新中心 (X-Humanoid)`
+- **Arxiv ID**: `2605.15153` | [点击跳转](https://arxiv.org/abs/2605.15153)
+
+**0. 论文标题**
+- **英文标题**: Pelican-Unified 1.0: A Unified Embodied Intelligence Model (UEI) for Understanding, Reasoning, Imagination and Action
+- **中文标题**: Pelican-Unified 1.0：面向理解、推理、想象与动作的统一具身智能模型
+- **研究机构**: 北京人形机器人创新中心 (X-Humanoid)
+
+**1. 整体逻辑**
+- **研究任务**: 具身基础模型，要求单模型同时具备视觉语言理解、任务逻辑推理、未来画面想象（视频生成）与底层动作执行能力。
+- **研究动机**: 现有方案全是“拼积木”。VLM懂语义但不产出动作；VLA能出动作但缺乏未来想象，遇到长程或接触密集任务泛化差；世界模型能生成未来画面，但脱离任务推理和动作约束，容易跑偏且难纠错。模块化串联导致表征割裂，能力互相设限。
+- **本质改动**: 砍掉独立的策略头和世界模型，把“理解-推理-想象-执行”收束到一个闭环训练对象中。核心是让所有能力共享一个隐状态 `z`，用同一个生成过程同时产出未来视频和动作，语言、视频、动作的Loss直接打通回传，强制表征在语义、预测和可操作性上对齐。
+- **技术溯源**: 语言/视觉理解基座：Qwen3-VL (4B)；联合扩散生成基座：Wan2.2 (5B DiT)；动作/视频生成范式：连续流匹配（Flow Matching）扩散。
+
+**2. 技术拆解**
+- **重点改进**: 设计“统一未来生成器（UFG）”。把视频Latent和动作轨迹映射到同一个Transformer宽度下，共用去噪计算。推理隐状态 `z` 通过Cross-Attention注入，视频Token和动作Token在自注意力层直接交互。动作生成会参考想象出的未来状态，画面生成受动作动力学约束。推理完成后，额外加一步动作Refine，让动作Token回头Attention生成的视觉特征再做最终修正，保证执行一致性。
+- **架构细节**: 
+  - **输入/编码**: 历史观测、历史动作序列、语言指令送入Qwen3-VL。模型自回归生成任务/动作导向的CoT，取最终隐藏状态投影为稠密向量 `z`。
+  - **联合扩散**: `z` 注入DiT。视频经3D VAE编码，动作做连续归一化。两者分别加噪后拼接输入。共享DiT处理时空与模态间依赖，分头预测视频和动作的速度场（velocity prediction）。
+  - **规模**: 4B VLM + 5B DiT，单权重部署。
+- **核心 Loss**: 端到端联合加权，无额外监督或对齐阶段。
+  - `L_text`: 自回归NLL，约束CoT与高层任务意图对齐。
+  - `L_video`: 连续流匹配MSE，仅作用于未来帧掩码区域，强制 `z` 具备物理世界预测能力。
+  - `L_action`: 连续流匹配SmoothL1，约束可执行动作空间。
+  - 三者梯度同时回传至共享表征 `z`，避免各能力优化目标冲突。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - 理解推理：8个通用+具身VLM榜单（MMMU、MMBench、PhyX、Where2Place等），基线为Qwen3-VL-4B及OpenVLA、π0.5、MolmoAct等。
+  - 动作控制：RoboTwin双臂仿真（50任务），对比AIM、starVLA、LingBot-VA。
+  - 世界想象：WorldArena。
+  - 实机验证：UR5机械臂与天工机器人操作工控面板，测试零样本与组合泛化。
+- **评价指标**: VLM榜单平均准确率、RoboTwin任务成功率、WorldArena的EWM Score、实机组合任务成功率。
+- **实验结果**: 统一训练未出现能力退化，长程泛化显著提升。
+  - 理解能力：VLM均分64.7，超越同规模基座（+6.5），大幅拉开与传统VLA差距（MolmoAct仅27.5）。空间定位与物理理解类任务提升最大（+20~28分）。
+  - 动作执行：RoboTwin平均成功率93.5%，排第二，与SOTA（93.1%）基本持平。31/50任务成功率>95%，失败集中在极端长程或高精度对齐任务。
+  - 想象能力：WorldArena得分66.03，排第一。
+  - 实机部署：在未见过的组合指令和长程操作上，显著优于模块化拼接方案，验证了共享表征带来的泛化与纠错红利。
+
+---
+
+
+### 2. 🔥 [IntentVLA: Short-Horizon Intent Modeling for Aliased Robot Manipulation] (IntentVLA：针对歧义观测的短时意图建模机器人操作)
+- **研究机构**: `华中科技大学、中关村科学院、哈尔滨工业大学、港科大(广州)等`
+- **Arxiv ID**: `2605.14712` | [点击跳转](https://arxiv.org/abs/2605.14712)
+
+**0. 论文标题**
+- **英文标题**: IntentVLA: Short-Horizon Intent Modeling for Aliased Robot Manipulation
+- **中文标题**: IntentVLA：针对歧义观测的短时意图建模机器人操作
+- **研究机构**: 华中科技大学、中关村科学院、哈尔滨工业大学、港科大(广州)等
+
+**1. 整体逻辑**
+- **研究任务**: 视觉-语言-动作（VLA）模型的连续动作块（chunk）生成与策略控制。
+- **研究动机**: 现有 VLA 策略在推理时只看“当前单帧+指令”。在部分可观测环境下，视觉上几乎相同的画面可能对应不同的任务阶段或局部路径（观测歧义）。单帧条件会导致策略在相邻的重规划步骤中随机切换意图，输出的动作块前后矛盾，执行震荡。核心痛点不是数据多模态，而是缺乏“局部意图承诺”。
+- **本质改动**: 不将原始历史帧直接塞进 VLM 上下文，而是用独立的视觉编码器提取紧凑的短时历史证据，与当前图文特征融合成“短时意图表征”，强制策略在重规划窗口内保持局部决策一致性。
+- **技术溯源**: 当前视觉-语言特征提取基于 **Qwen3-VL 4B**；历史特征提取基于冻结权重的 **VGGT-1B**；动作生成头采用与 GR00T 同源的 **DiT 架构 + Conditional Flow Matching**。
+
+**2. 技术拆解**
+- **重点改进**: 提出短时意图建模分支。利用最近 $K$ 帧视觉历史推断当前活跃的局部延续模式，通过门控机制注入决策过程，替代原模型仅依赖当前帧的无记忆推理。
+- **架构细节**:
+  - **双路输入**: 当前图像+指令走 Qwen3-VL 4B 主干，输出当前上下文特征 $F_t$。最近历史帧（仅用主视角）走冻结的 VGGT-1B 编码器。
+  - **历史特征压缩**: 舍弃 VGGT 大部分 token，每帧仅保留 1 个相机参数 token 和 4 个几何/时序 register token。经线性投影和 LayerNorm 得到历史 token 序列 $\tilde{U}_t$，另经池化得到全局历史证据 token $e_t$。
+  - **门控融合**: 以 $F_t$ 为 Query，$\tilde{U}_t$ 为 Key/Value 进行多头注意力计算，乘以可学习门控标量 $\sigma(\alpha)$ 控制历史信息注入量。融合后的特征序列末尾拼接 $e_t$，构成完整的条件表征 $C_t$。
+  - **动作生成**: $C_t$ 作为 Condition 输入 DiT 动作头，通过 Flow Matching 预测速度场，推理时用欧拉法积分去噪得到动作块 $\tau_t$。
+- **核心 Loss**: 标准 Conditional Flow Matching MSE Loss。直接最小化预测漂移场与真实位移的误差。无显式意图标签监督，无视频重建等辅助 Loss，纯端到端行为克隆。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - 自建 **AliasBench**（基于 RoboTwin2，12个任务，刻意构造往返、交叉路径、双臂对称、多目标四类短时观测歧义场景）。
+  - 常规数据集：SimplerEnv, LIBERO, RoboCasa。
+  - Baseline：Qwen3VL-GR00T（单帧基线）；直接将过去 16/8/4 帧作为额外 context 喂入 Qwen 的硬拼接变体。
+- **评价指标**: 任务成功率（Success Rate）；块间一致性误差（ICC-L2，计算相邻重规划窗口重叠时段动作的 L2 距离，越低代表策略越稳定）。
+- **实验结果**:
+  - 在 AliasBench 上，单帧基线平均成功率仅 **9.0%**。硬塞历史帧的基线显存爆炸（16/8帧 OOM，4帧最高仅 28.1%）。IntentVLA 平均成功率达到 **45.8%**，较最强可行基线提升 17.7%，在依赖路径记忆的交叉/往返任务上优势最大。
+  - ICC-L2 显著低于所有 baseline，证明重规划时动作块跳变问题被有效抑制。
+  - 在 SimplerEnv、LIBERO、RoboCasa 等常规榜单上，同样观测到执行稳定性和成功率的双提升。表明该短时意图约束并非仅针对极端构造场景，对常规操作的长程一致性也有实质增益，且历史 token 压缩方案以极小算力代价规避了大模型上下文瓶颈。
+
+---
+
+
+### 3. 🔥 [Evo-Depth: A Lightweight Depth-Enhanced Vision-Language-Action Model] (Evo-Depth：一种轻量级深度增强型视觉-语言-动作模型)
+- **研究机构**: `上海交通大学 (SJTU)`
+- **Arxiv ID**: `2605.14950` | [点击跳转](https://arxiv.org/abs/2605.14950)
+
+**0. 论文标题**
+- **英文标题**: Evo-Depth: A Lightweight Depth-Enhanced Vision-Language-Action Model
+- **中文标题**: Evo-Depth：一种轻量级深度增强型视觉-语言-动作模型
+- **研究机构**: 上海交通大学 (SJTU)
+
+**1. 整体逻辑**
+- **研究任务**: 基于多视角RGB图像与语言指令，端到端生成机器人机械臂动作序列（VLA）。
+- **研究动机**: 现有VLA高度依赖2D视觉特征，缺乏空间深度信息，在精细抓取和相对定位任务中表现不稳定。引入显式3D（深度相机/点云）需额外硬件、管线复杂且对噪声敏感；现有隐式3D方法直接套用大型几何基础模型（如VGGT），参数量大、推理慢，无法满足真机实时部署需求。
+- **本质改动**: 放弃显式3D重建和重型几何模型，设计一个轻量级模块直接从多视角RGB提取隐式深度特征，并通过通道级调制（FiLM）将其注入2D视觉语言特征，配合三阶段渐进对齐训练，在不增加硬件和显著增加算力的前提下补全空间感知。
+- **技术溯源**: 视觉语言主干基于 InternVL3-1B（InternViT-300M视觉编码器 + Qwen2.5-0.5B语言模型，截取前14层）；深度特征提取基于多视角深度估计预训练的轻量ViT；动作生成基于 Flow-matching 范式的 DiT。模型总参数量 0.9B。
+
+**2. 技术拆解**
+- **重点改进**: 新增 IDEM（隐式深度编码模块）和 SEM（空间增强模块）。IDEM负责从多视角RGB中提炼紧凑的深度表征；SEM用该表征对主干的2D特征做轻量级调制，替代传统的特征拼接或重型3D融合网络；配合三阶段渐进冻结训练策略，解决预训练主干与新模块的对齐问题。
+- **架构细节**:
+  - **输入/输出**: 输入多视角RGB、语言指令、机器人关节状态；输出未来动作轨迹。
+  - **IDEM**: 0.13B参数的单路ViT。浅层仅做视角内自注意力（保局部结构），深层切换为跨视角自注意力（聚合多视角空间关系），输出隐式深度特征向量。
+  - **VL主干**: InternVL3-1B，输出标准2D视觉语言特征。
+  - **SEM**: 将IDEM输出池化为全局描述符，经单层网络预测通道缩放因子(γ)和偏移(β)，对VL特征执行 $\hat{Z} = \gamma \odot Z + \beta$ 的FiLM变换，实现特征级空间增强。
+  - **动作专家**: 基于Flow-matching的DiT，以增强特征和状态为条件，通过线性插值噪声和预测向量场，迭代生成动作。
+- **核心 Loss**: 仅使用动作生成的 Flow-matching 损失（预测向量场与真实目标流方向的MSE）。深度模块本身由预训练权重初始化，未引入深度重建等辅助Loss。训练过程依赖“三阶段渐进对齐”策略：①冻结IDEM和VL，仅训SEM和动作头；②解冻IDEM，保持VL冻结；③全模型端到端联合优化。
+
+**3. 实验结果**
+- **数据集和baseline**: 仿真基准：Meta-World, VLA-Arena, LIBERO, LIBERO-Plus；真机任务：三项递进难度的桌面操作（放置、投掷、叠放）。对比方法涵盖 TinyVLA, π0, SmolVLA, OpenVLA/OFT, UniVLA, DepthVLA 等主流轻量化及3D感知VLA。
+- **评价指标**: 任务成功率(%)、模型参数量(B)、GPU显存占用(GB)、推理频率(Hz)。
+- **实验结果**: 
+  - 模型仅 0.9B 参数，在对比序列中最小。
+  - 仿真：Meta-World 平均成功率 84.4%（SOTA），LIBERO 达 95.4%，在长程任务和分布偏移下保持领先。
+  - 真机：平均成功率 90.0%，大幅优于 OpenVLA-OFT(38.3%) 和 π0(66.7%)。硬件开销仅占 3.2GB 显存，推理频率 12.3 Hz（对比方法显存 15~18GB，频率 7~10Hz）。在相机遮挡、光照变化、背景更换等泛化扰动设置中，成功率均稳定领先基线。
+
+---
+
+
+### 4. 🔥 [WarmPrior: Straightening Flow-Matching Policies with Temporal Priors] (WarmPrior：利用时序先验拉直流匹配策略的生成轨迹)
+- **研究机构**: `KAIST, Microsoft Research`
+- **Arxiv ID**: `2605.13959` | [点击跳转](https://arxiv.org/abs/2605.13959)
+
+**0. 论文标题**
+- **英文标题**: WarmPrior: Straightening Flow-Matching Policies with Temporal Priors
+- **中文标题**: WarmPrior：利用时序先验拉直流匹配策略的生成轨迹
+- **研究机构**: KAIST, Microsoft Research
+
+**1. 整体逻辑**
+- **研究任务**: 基于流匹配（Flow-Matching）的机器人视觉动作策略生成（行为克隆与先验空间强化学习）。
+- **研究动机**: 现有生成式策略几乎统一使用标准正态分布 $\mathcal{N}(0,I)$ 作为生成起点。这种“无状态”起点完全忽略了机器人动作的时序连续性，迫使模型每一步都从纯噪声重新生成整个动作块。这导致积分路径长且弯曲，在低推理步数（少次采样）时性能骤降。
+- **本质改动**: 废弃无意义的纯噪声起点，改用基于历史动作的“时序暖先验”（WarmPrior）初始化生成过程。不改动策略网络架构、不改动插值公式、不改动训练目标，仅替换初始分布 $p_0$ 的采样方式。
+- **技术溯源**: 基于标准 Flow Matching 框架，作为即插即用模块，无缝兼容 Diffusion Policy 和 GR00T N1.5 (VLA) 等开源基座。
+
+**2. 技术拆解**
+- **重点改进**: 提供两种极简的起点均值锚定方式，并在均值上叠加残差高斯噪声 $\sigma\varepsilon$ 以保持分布的随机性：
+  1. `WP-Past`：以**上一时刻已执行**的动作块作为当前生成的均值起点。
+  2. `WP-Preview`：策略每次预测 $2H$ 步动作，仅执行前 $H$ 步。下一决策时刻，直接复用上一时刻预测的“后 $H$ 步预览值”作为当前起点的均值。这相当于将生成策略转化为对自身历史规划的残差修正。
+  （当无历史记录可用时，如单集第一步，自动回退至标准 $\mathcal{N}(0,I)$。）
+- **架构细节**:
+  - **输入输出**：输入为环境观测 $o$、带先验的初始动作 $a_0$ 及扩散时间步 $t$；输出为流速度场 $v_\theta(t, a_t, o)$。
+  - **改动位置**：仅在采样初始化阶段介入（训练时构造 $a_0$ 与推理起始替换噪声）。
+  - **模型规模**：零额外可训练参数。核心调节项为残差缩放系数 $\sigma$（Past 默认 0.5，Preview 默认 1.0），该系数充当时序一致性/多模态表达能力的连续旋钮。
+- **核心 Loss**: 与原版 Flow Matching 完全一致（MSE回归流速度场）。无辅助任务或重建损失。理论推导证明，该改动直接压低了流匹配优化中的“分支代价（Branching Cost）”：通过缩短起点到目标动作流形的距离，缓解了因端点歧义导致的概率路径交叉与弯曲，使网络容量更集中于末端动作的精修。
+
+**3. 实验结果**
+- **数据集和baseline**: 仿真使用 Robomimic (状态/图像) 和 MimicGen (图像)；真机使用 Franka Research 3 完成 4 个桌面操作任务。对比基线为标准 $\mathcal{N}(0,I)$ 起点的 Flow Matching 策略。骨干网络涵盖 Diffusion Policy 和 GR00T N1.5 VLA。
+- **评价指标**: 任务成功率（SR）；流路径曲率 $\kappa(o)$（定量评估生成轨迹的平直程度，越低越直）；在不同推理函数评估次数（NFE=1, 3, 9）下横评。
+- **实验结果**:
+  - **成功率全面提升**：在绝大多数任务上取得显著增益（通常超出基线 1$\sigma$ 误差棒）。收益与推理预算和任务难度强相关：推理步数越少（如 NFE=1）、任务越复杂，提升越明显（MimicGen 高难任务最高提升 13.2%）。
+  - **Preview 优于 Past**：`WP-Preview` 因起点均值更接近真实目标分布，效果普遍优于 `WP-Past`。
+  - **几何机制验证**：路径曲率平均下降 20%~44%。曲率降幅越大的任务，成功率提升越显著，直接证实了“起点拉近 -> 路径变直 -> 策略容量释放 -> 成功率上升”的因果链条。
+  - **RL 扩展有效**：在先验空间强化学习（DSRL）中，WarmPrior 能收缩并居中探索空间，以残差微调形式显著提升了样本利用率与最终策略性能。
+
+---
+</script>
+            <script>
+                const rawMdElement = document.getElementById('raw-markdown');
+                if (rawMdElement) {
+                    document.getElementById('content').innerHTML = marked.parse(rawMdElement.textContent);
+                    // 渲染后触发公式排版
+                    if (window.MathJax && window.MathJax.typesetPromise) {
+                        window.MathJax.typesetPromise();
+                    }
+                }
+                function copySources() { /* 原代码保持不变 */ }
+            </script>
+        </body>
+        </html>
+        
