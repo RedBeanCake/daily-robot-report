@@ -369,14 +369,14 @@ if __name__ == "__main__":
             date_info = real_info
         else:
             # 兜底：如果抓取失败，再使用当前的日期
-            date_info = {
-                "prefix": datetime.datetime.now().strftime('%a, %d %b %Y'), 
-                "total": "0" 
-            }
-        # date_info = {
-        #     "prefix": "Mon, 13 May 2026", 
-        #     "total": "50" 
-        # }
+            # date_info = {
+            #     "prefix": datetime.datetime.now().strftime('%a, %d %b %Y'), 
+            #     "total": "0" 
+            # }
+        date_info = {
+            "prefix": "Fri, 22 May 2026", 
+            "total": "53" 
+        }
         generate_archive_and_index(date_info, arxiv_content)
     else:
         # --- 模式 B：定时任务执行初筛汇报 ---
