@@ -194,7 +194,7 @@ def deep_dive_only(papers_to_process):
         try:
             # 深度解析建议用逻辑更强的模型（如 qwen-plus）
             completion = client_llm.chat.completions.create(
-                model="qwen3.5-plus",  # qwen3.6-plus, qwen3.5-flash
+                model="qwen3.5-plus-2026-04-20",  # qwen3.6-plus, qwen3.5-flash
                 messages=[{"role": "user", "content": expert_prompt}]
             )
             report = completion.choices[0].message.content
@@ -365,18 +365,18 @@ if __name__ == "__main__":
         # 生成网页并推送（复用原函数）
         real_info, _, _ = scrape_arxiv(CATEGORIES[0]) 
         
-        if real_info:
-            date_info = real_info
-        else:
+        # if real_info:
+        #     date_info = real_info
+        # else:
             # 兜底：如果抓取失败，再使用当前的日期
-            date_info = {
-                "prefix": datetime.datetime.now().strftime('%a, %d %b %Y'), 
-                "total": "0" 
-            }
-        # date_info = {
-        #     "prefix": "Mon, 13 May 2026", 
-        #     "total": "50" 
-        # }
+            # date_info = {
+            #     "prefix": datetime.datetime.now().strftime('%a, %d %b %Y'), 
+            #     "total": "0" 
+            # }
+        date_info = {
+            "prefix": "Fri, 22 May 2026", 
+            "total": "53" 
+        }
         generate_archive_and_index(date_info, arxiv_content)
     else:
         # --- 模式 B：定时任务执行初筛汇报 ---
