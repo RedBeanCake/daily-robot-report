@@ -365,9 +365,9 @@ if __name__ == "__main__":
         # 生成网页并推送（复用原函数）
         real_info, _, _ = scrape_arxiv(CATEGORIES[0]) 
         
-        if real_info:
-            date_info = real_info
-        else:
+        # if real_info:
+        #     date_info = real_info
+        # else:
             # 兜底：如果抓取失败，再使用当前的日期
             # date_info = {
             #     "prefix": datetime.datetime.now().strftime('%a, %d %b %Y'), 
