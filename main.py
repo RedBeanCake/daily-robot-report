@@ -368,7 +368,7 @@ if __name__ == "__main__":
         if real_info:
             date_info = real_info
         else:
-            兜底：如果抓取失败，再使用当前的日期
+            # 兜底：如果抓取失败，再使用当前的日期
             date_info = {
                 "prefix": datetime.datetime.now().strftime('%a, %d %b %Y'), 
                 "total": "0" 
