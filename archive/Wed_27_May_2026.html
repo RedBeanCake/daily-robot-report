@@ -1,0 +1,188 @@
+
+        <!DOCTYPE html>
+        <html lang="zh-CN">
+        <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>🤖 具身大模型简报 - Wed, 27 May 2026 (VLA: 3 of 40 entries)</title>
+            <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.2.0/github-markdown.min.css">
+            <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+            <script>
+                window.MathJax = {
+                    tex: { inlineMath: [['$', '$'], ['\\(', '\\)']], displayMath: [['$$', '$$'], ['\\[', '\\]']] },
+                    options: { skipHtmlTags: ['script', 'style', 'textarea'] }
+                };
+            </script>
+            <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+            <style>
+                .markdown-body { box-sizing: border-box; min-width: 200px; max-width: 980px; margin: 0 auto; padding: 45px; }
+                @media (max-width: 767px) { .markdown-body { padding: 15px; } }
+            </style>
+        </head>
+        <body class="markdown-body">
+            <a href='../index.html' style='margin-bottom:20px; display:block;'>← 返回主索引</a>
+            <h1>🤖 具身大模型简报 - Wed, 27 May 2026 (VLA: 3 of 40 entries)</h1>
+            <div id="content"></div>
+            
+            <script type="text/markdown" id="raw-markdown">### 1. 🔥 [FineVLA: Fine-Grained Instruction Alignment for Steerable Vision-Language-Action Policies] (FineVLA：面向可调控视觉-语言-动作策略的细粒度指令对齐方法)
+- **研究机构**: `XLANG Lab, The University of Hong Kong；Qwen Team, Alibaba Inc.`
+- **Arxiv ID**: `2605.27284` | [点击跳转](https://arxiv.org/abs/2605.27284)
+
+**0. 论文标题**  
+- **英文标题**: FineVLA: Fine-Grained Instruction Alignment for Steerable Vision-Language-Action Policies  
+- **中文标题**: FineVLA：面向可调控视觉-语言-动作策略的细粒度指令对齐方法  
+- **研究机构**: XLANG Lab, The University of Hong Kong；Qwen Team, Alibaba Inc.
+
+---
+
+**1. 整体逻辑**  
+- **研究任务**: 提升VLA（视觉-语言-动作）策略对“如何执行任务”的指令响应能力，即在完成同一目标（如“拿起杯子”）的前提下，按用户指定的执行细节（如“用左手”“从左侧接近”“接触杯柄”）生成不同动作轨迹。  
+- **研究动机**: 现有机器人数据集只提供粗粒度目标级语言（e.g., “pick up the cup”），缺失执行关键因子（active arm、approach direction、contact region等），导致策略无法被语言精细调控；且社区缺乏统一的细粒度标注工具、评测基准和训练范式。  
+- **本质改动**: 不改模型结构、不换动作表示、不增传感器输入，仅将原始轨迹配对的“目标级指令”替换为人工校验的“过程级细粒度指令”，并系统控制训练中两类指令的混合比例。  
+- **技术溯源**: 基于 Qwen3.5-4B（VL backbone）、StarVLA 代码库（OFT/GR00T action-decoding 框架）；细粒度标注由 Qwen3.5-397B-A17B 微调得到的 RoboFine-VLM 辅助生成（但所有策略训练均使用人工校验的 FineVLA-Data，未用模型生成标注）。
+
+---
+
+**2. 技术拆解**  
+- **重点改进**:  
+  - 构建 FineVLA-Tool：统一10个开源机器人数据集（972k 轨迹），通过 DTW 聚类去冗余，选出 47k 代表性轨迹；  
+  - 定义10维细粒度标注 schema（含 active actor、target object、contact region、approach direction、trajectory & orientation 等），每条轨迹配 96.8 字平均长度的过程描述（原指令仅 9.3 字）；  
+  - 所有标注经人工校验，形成 FineVLA-Data（47,159 条）；  
+  - 训练时固定轨迹、动作、视觉输入，仅切换配对语言——要么用原始粗指令（Raw），要么用细粒度指令（FG），或按比例混合。  
+
+- **架构细节**:  
+  - Policy backbone：Qwen3.5-4B（ViT + LLM）；  
+  - Action decoding：两种实现——StarVLA-OFT（MLP 回归 head，L1 loss）和 StarVLA-GR00T（VL backbone + DiT flow-matching）；  
+  - 输入：单帧/多帧图像 + 文本指令；输出：连续动作 chunk（6D end-effector pose + gripper）；  
+  - 模型规模：Qwen3.5-4B（约 4B 参数），非大语言模型级别，属实用化 VLA 规模。  
+
+- **核心 Loss**:  
+  - 主 Loss：动作预测的 L1 回归损失（OFT）或 flow-matching loss（GR00T）；  
+  - 无辅助任务（如视频重建、对比学习等）；纯监督动作预测，仅语言输入变细粒度。
+
+---
+
+**3. 实验结果**  
+- **数据集和baseline**:  
+  - 数据集：RDT（单臂）、AlohaMix（双臂，含 RDT/RoboCOIN/RoboMIND 等）；  
+  - Baseline：Raw-only（仅用原始粗指令训练）；  
+  - 对比设置：7 种 FG:Raw 比例（1:4 → 4:1 → FG-only）；  
+  - 评测分三块：RoboFine-Bench（视频理解）、RoboTwin（仿真）、真实双臂平台（Cobot Magic）。  
+
+- **评价指标**:  
+  - RoboFine-Bench：VQA 准确率（1030 问题）、Caption 的 Consistency/Coverage/Anti-Hallucination（LLM judge 打分）；  
+  - RoboTwin：任务成功率（Easy/Hard split，20 episodes/task）；  
+  - 真实世界：每项任务 10 次 trial 的部分完成得分（0–100 归一化），按 factor（pose/color/approach 等）单独计分。  
+
+- **实验结果**:  
+  - RoboFine-Bench：RoboFine-VLM 达 71.0% VQA 准确率（hard setting），超通用 VLM（如 Qwen-VL、InternVL）12+ pts；Caption 一致性达 83.6%；  
+  - RoboTwin：FG:Raw = 1:1 时最优——AlohaMix-OFT Easy/Hard 成功率达 86.8%/82.5%，比 Raw-only（71.8%/71.4%）高 +15.0/+11.1 pts；  
+  - 真实双臂：FG:Raw = 1:1 平均分 62.7/100，显著优于 Raw-only（49.9）；在 pose（+23）、color（+18）、approach direction（+18）等执行敏感因子上提升最大——这些因子在原始指令里根本没提；  
+  - 关键发现：细粒度监督不损害目标级成功率（FG-only 已比 Raw-only 高 +1.4~+8.1），且与粗指令互补，非越多越好——性能呈倒 U 型，峰值在 FG:Raw ≈ 1:2 到 1:1。
+
+---
+
+
+### 2. 🔥 [Can VLA Models Learn from Real-World Data Continually without Forgetting?] (视觉-语言-动作（VLA）模型能否在真实世界数据流上持续学习而不遗忘？)
+- **研究机构**: `HKU, INFIFORCE, EIT Ningbo, HUST, SUSTech, HITSZ（多单位合作，主干来自港大与INFIFORCE）`
+- **Arxiv ID**: `2605.26820` | [点击跳转](https://arxiv.org/abs/2605.26820)
+
+**0. 论文标题**  
+- **英文标题**: Can VLA Models Learn from Real-World Data Continually without Forgetting?  
+- **中文标题**: 视觉-语言-动作（VLA）模型能否在真实世界数据流上持续学习而不遗忘？  
+- **研究机构**: HKU, INFIFORCE, EIT Ningbo, HUST, SUSTech, HITSZ（多单位合作，主干来自港大与INFIFORCE）
+
+**1. 整体逻辑**  
+- **研究任务**: 真实机器人场景下的VLA模型持续学习——给定按时间顺序到来的异构操作任务（如堆碗→挂杯→按按钮→叠毛巾），模型能否边学新任务、边保住老技能？  
+- **研究动机**: 现有VLA持续学习研究全在仿真环境（如LIBERO）做，任务同质、分布平滑、预训练数据重叠严重，高估了模型鲁棒性；真实世界任务间差异大（刚体/接触/形变）、数据不可回溯、归一化参数无法全局预设——这些现实约束下，遗忘到底有多严重？怎么治？  
+- **本质改动**: 不是提新算法，而是**把持续学习从“仿真玩具”搬到“真实机械臂+多视角摄像头+手操演示”的物理流水线里**，并系统检验最常用、最落地的缓解手段——经验回放（ER）在真实条件下的有效性边界。  
+- **技术溯源**: 基于 π₀.₅（Black et al., 2025），即当前主流开源VLA基座之一；未用CLIP或LLM作为主干，而是直接复用其SFT训练流程和动作建模结构。
+
+**2. 技术拆解**  
+- **重点改进**:  
+  - 构建首个真实世界持续学习基准：4个异构任务（Stack Bowl / Hang Cup / Press Button / Fold Towel），共2000条真人遥操作轨迹，覆盖刚体抓放、空间对准、小目标接触、可变形物体操纵；  
+  - 拆解ER中被长期忽视的工程细节：回放频率（*fᵣ*）、缓冲区大小（*B*，以单任务数据量比例计）、动作归一化策略（是否固定首任务统计量）；  
+  - 显式禁用“作弊式”设置：不预计算全局归一化参数、不混洗全部任务数据、不泄露未来任务信息。  
+
+- **架构细节**:  
+  - 输入：4路RGB图像（2腕部+2外部）+语言指令（任务名+步骤提示）；  
+  - 输出：10步动作序列（6维关节+1维夹爪）；  
+  - 模型：π₀.₅（具体为ViT-L/14视觉编码器 + LLaMA-2风格语言-动作融合头）；  
+  - 训练：每个任务单独SFT 4000步，AdamW优化器，batch size 128；  
+  - 回放缓冲区：按任务等分存储，每任务至少保留1条轨迹，总容量 *M = B × |𝒟ₖ|*。  
+
+- **核心 Loss**:  
+  - 主Loss：标准负对数似然（NLL），即 *Lₛ𝒻ₜ = 𝔼[−log π(a|o)]*；  
+  - 无辅助任务（如视频重建、对比学习等），纯监督动作预测；  
+  - 回放时Loss加权混合：*fᵣ* 概率采样回放数据，*(1−fᵣ)* 概率采样当前任务数据，Loss直接相加。
+
+**3. 实验结果**  
+- **数据集和baseline**:  
+  - 数据集：自建真实世界4任务序列（各500条轨迹），任务间几何、交互、运动模式差异显著；  
+  - Baseline：单任务训练（upper bound）、联合训练（joint training，所有任务数据一起训）、朴素顺序微调（no replay）。  
+
+- **评价指标**:  
+  - 主指标：各任务最终测试得分（0–100归一化，按任务细则打分）；  
+  - 关键衍生指标：  
+    - **Avg. Score**：4任务平均分（越高越好）；  
+    - **NBT（Negative Backward Transfer）**：旧任务性能衰减均值（越低越好，>0表示遗忘）；  
+    - **FT（Forward Transfer）**：新任务在持续学习中比单任务表现更好/更差（>0表示正向迁移）。  
+
+- **实验结果**:  
+  - 朴素顺序微调（no replay）：平均分跌至37.3（单任务均值87.4），NBT=+80.0 → **近乎完全遗忘**；  
+  - 默认ER配置（*B=0.2*, *fᵣ=0.2*）：平均分93.5，NBT=+5.0，所有任务距单任务基线仅差≤10分 → **遗忘基本消除**；  
+  - 对比联合训练：ER方案全面胜出（尤其Press Button任务：联合训练仅13.3 vs ER达90.0），因联合训练存在梯度干扰、表征压制、损失尺度失衡；  
+  - 关键发现：动作归一化必须固定首任务统计量（Strategy-I），否则用各任务独立归一化（Strategy-II）会导致后3个任务得分归零——**归一化不一致会直接让ER失效**。
+
+---
+
+
+### 3. 🔥 [LocateAnything: Fast and High-Quality Vision-Language Grounding with Parallel Box Decoding] (LocateAnything：基于并行框解码的快速、高精度视觉-语言定位)
+- **研究机构**: `清华大学（Shihao Wang, Yuanguo Kuang, Xinyu Wei, Lei Zhang）、中科院自动化所（Shilong Liu）、上海人工智能实验室（Zhiding Yu）、NVIDIA（Jan Kautz, Andrew Tao）等（*注：作者单位分散，以第一/通讯作者主要 affiliations 为准，清华+自动化所+上海AI Lab 为技术主力*）`
+- **Arxiv ID**: `2605.27365` | [点击跳转](https://arxiv.org/abs/2605.27365)
+
+**0. 论文标题**  
+- **英文标题**: LocateAnything: Fast and High-Quality Vision-Language Grounding with Parallel Box Decoding  
+- **中文标题**: LocateAnything：基于并行框解码的快速、高精度视觉-语言定位  
+- **研究机构**: 清华大学（Shihao Wang, Yuanguo Kuang, Xinyu Wei, Lei Zhang）、中科院自动化所（Shilong Liu）、上海人工智能实验室（Zhiding Yu）、NVIDIA（Jan Kautz, Andrew Tao）等（*注：作者单位分散，以第一/通讯作者主要 affiliations 为准，清华+自动化所+上海AI Lab 为技术主力*）
+
+**1. 整体逻辑**  
+- **研究任务**: 视觉-语言定位（visual grounding）——给定图像和自然语言描述（如“左上角的红色按钮”），输出对应物体的边界框坐标。  
+- **研究动机**: 现有VLM做定位时，把一个框（x₁,y₁,x₂,y₂）拆成4个独立token逐个生成（next-token prediction, NTP），既破坏坐标间的几何耦合性，又导致推理慢（串行瓶颈）；而通用多token预测（MTP）又随意切分token流，容易跨框混写、结构错乱。  
+- **本质改动**: 把“一个完整边界框”（含4个坐标+起止标记）定义为**原子单元（atomic block）**，强制模型在单步前向中并行预测整个块，而非拆开或乱切。  
+- **技术溯源**: 基于 Qwen2.5（语言模型）、Moon-ViT（视觉编码器），用 MLP projector 连接；训练策略借鉴了 Block Diffusion（arriola2025block）、SDLM（liu2025sequential）等半自回归框架。
+
+**2. 技术拆解**  
+- **重点改进**: 提出 **Parallel Box Decoding (PBD)** ——将每个框映射为固定长度 L=6 的 token block（如 `<box> 211 911 887 432 </box>`），所有4个坐标+2个结构符在同一块内联合预测；训练时用 block-level mask（块内双向注意力 + 块间因果注意力）实现结构对齐。  
+- **架构细节**: 输入 = 图像（Moon-ViT提取原分辨率特征）+ 文本query；输出 = block序列（Semantic / Box / Negative / End 四类block）；模型规模为 3B（Qwen2.5-LM backbone）。关键设计：训练时**双路输入**（共享图文上下文 + 并行NTP流 + 并行MTP block流），用定制attention mask隔离两路但共用视觉特征。  
+- **核心 Loss**: 联合优化两个交叉熵损失：ℒ = ℒ<sub>ntp</sub>（标准自回归loss） + ℒ<sub>mtp</sub>（块内mask预测loss）；无额外重建loss，不依赖视频或掩码图像重建。
+
+**3. 实验结果**  
+- **数据集和baseline**:  
+  - 主要benchmark：LVIS（长尾检测）、COCO（通用检测）、RefCOCO+/RefCOCOg（指代表达）、GUI-Bench（UI元素定位）、DocLayNet（文档布局）；  
+  - 对比方法：Grounding DINO（开集检测器）、DINO/DETR系列（闭集检测器）、Qwen3-VL / Rex-Omni / SEED1.5-VL（主流VLM定位模型）。  
+- **评价指标**:  
+  - 准确性：F1@IoU（按IoU阈值0.5/0.95/mean计算，兼顾召回与精度）；  
+  - 速度：BPS（Boxes Per Second），即每秒解码的完整边界框数（非token数）；  
+  - 鲁棒性：Hybrid模式下格式错误率、空间模糊触发率。  
+- **实验结果**:  
+  - **速度**：LocateAnything-3B 达到 **12.7 BPS**，是 Rex-Omni（5.0 BPS）的 **2.5×**，比 Qwen3-VL（1.1 BPS）快 **11.5×**；  
+  - **精度**：在 LVIS 上 F1@IoU<sub>mean</sub> = 50.7（SOTA Rex-Omni 为 46.9）；在 COCO 上达 54.7（Rex-Omni 为 52.9）；在 RefCOCOg 上绝对提升 +3.2 F1；  
+  - **消融证实**：仅用 COCO 数据训练时，PBD 本身带来 +2.1 F1@IoU<sub>mean</sub> 和 +3.8× BPS 提升，证明结构改动有效；138M LocateAnything-Data 数据使 LVIS 长尾性能再+4.3 F1。
+
+---
+</script>
+            <script>
+                const rawMdElement = document.getElementById('raw-markdown');
+                if (rawMdElement) {
+                    document.getElementById('content').innerHTML = marked.parse(rawMdElement.textContent);
+                    // 渲染后触发公式排版
+                    if (window.MathJax && window.MathJax.typesetPromise) {
+                        window.MathJax.typesetPromise();
+                    }
+                }
+                function copySources() { /* 原代码保持不变 */ }
+            </script>
+        </body>
+        </html>
+        
