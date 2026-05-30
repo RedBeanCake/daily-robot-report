@@ -1,0 +1,491 @@
+
+        <!DOCTYPE html>
+        <html lang="zh-CN">
+        <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>🤖 具身大模型简报 - Fri, 29 May 2026 (VLA: 10 of 43 entries)</title>
+            <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.2.0/github-markdown.min.css">
+            <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+            <script>
+                window.MathJax = {
+                    tex: { inlineMath: [['$', '$'], ['\\(', '\\)']], displayMath: [['$$', '$$'], ['\\[', '\\]']] },
+                    options: { skipHtmlTags: ['script', 'style', 'textarea'] }
+                };
+            </script>
+            <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+            <style>
+                .markdown-body { box-sizing: border-box; min-width: 200px; max-width: 980px; margin: 0 auto; padding: 45px; }
+                @media (max-width: 767px) { .markdown-body { padding: 15px; } }
+            </style>
+        </head>
+        <body class="markdown-body">
+            <a href='../index.html' style='margin-bottom:20px; display:block;'>← 返回主索引</a>
+            <h1>🤖 具身大模型简报 - Fri, 29 May 2026 (VLA: 10 of 43 entries)</h1>
+            <div id="content"></div>
+            
+            <script type="text/markdown" id="raw-markdown">### 1. 🔥 [Qwen-VLA: A Unified Vision-Language-Action Foundation Model for Embodied Intelligence] (Qwen-VLA：面向具身智能的统一视觉-语言-动作基础模型)
+- **研究机构**: `Alibaba Group（主要作者单位为通义实验室，隶属阿里集团）`
+- **Arxiv ID**: `2605.30280` | [点击跳转](https://arxiv.org/abs/2605.30280)
+
+**0. 论文标题**  
+- **英文标题**: Qwen-VLA: A Unified Vision-Language-Action Foundation Model for Embodied Intelligence  
+- **中文标题**: Qwen-VLA：面向具身智能的统一视觉-语言-动作基础模型  
+- **研究机构**: Alibaba Group（主要作者单位为通义实验室，隶属阿里集团）
+
+**1. 整体逻辑**  
+- **研究任务**: 构建一个能同时处理操纵（manipulation）、导航（navigation）和轨迹预测（trajectory prediction）的统一具身决策模型，支持多种机器人本体与环境。  
+- **研究动机**: 现有VLA模型多为单任务设计（如只做抓取或只做R2R导航），导致能力割裂、跨任务/跨平台泛化差；不同机器人硬件接口、运动学约束、控制粒度不一致，难以共享策略。  
+- **本质改动**: 不再为每类任务单独设计解码器或训练范式，而是将所有动作输出统一为“连续轨迹序列”，用DiT（Diffusion Transformer）结构直接回归6D末端位姿+夹爪开合的时序向量。  
+- **技术溯源**: 基于Qwen-VL（通义千问多模态版）的视觉编码器+语言解码器主干；未使用CLIP或Llama3，纯自研Qwen系基座；DiT动作解码器为新引入模块。
+
+**2. 技术拆解**  
+- **重点改进**:  
+  - 提出“embodiment-aware prompt conditioning”：在文本指令前拼接机器人描述（如“WidowX机械臂，7自由度，末端坐标系，夹爪开合范围0–1”），使模型显式感知本体约束；  
+  - 将动作空间统一映射为归一化的连续轨迹（每步含[x,y,z,rx,ry,rz,gripper]共7维），长度可变（默认16步），由DiT逐帧生成。  
+- **架构细节**:  
+  - 输入：图像（224×224）+ 文本指令 + 机器人描述文本；  
+  - 视觉编码器：Qwen-VL的ViT-L（392M参数），冻结前12层，微调后4层；  
+  - 语言主干：Qwen2-7B（7B参数）；  
+  - 动作解码器：DiT-small（约120M参数），输入为图文融合特征+时间位置编码，输出为16步×7维轨迹；  
+  - 总参数量≈7.5B（含视觉+语言+动作模块）。  
+- **核心 Loss**:  
+  - 主Loss：轨迹维度上的L1回归损失（对每步7维向量）；  
+  - 辅助Loss：1）图像重建（掩码ViT特征重构，强化视觉接地）；2）指令-动作对齐对比损失（拉近正样本图文-轨迹嵌入距离）；无扩散去噪过程，DiT仅用作序列建模器，非扩散采样。
+
+**3. 实验结果**  
+- **数据集和baseline**:  
+  - 数据集：LIBERO（9个仿真操纵任务）、Simpler-WidowX（真实机械臂）、RoboTwin（仿真导航+操纵混合）、R2R/RxR（视觉语言导航）、ALOHA（真实双臂协同）、DOMINO（动态物体操纵）；  
+  - Baseline：OpenVLA（同规模基座）、RT-2（Google）、VoxPoser（轨迹规划）、FusionPolicy（多任务SOTA）。  
+- **评价指标**:  
+  - 操纵任务：成功率（Success Rate, SR）；  
+  - 导航任务：OSR（Oracle Success Rate）、SR（Standard Success Rate）；  
+  - OOD泛化：在改变光照、背景、物体摆放、机器人本体（如从WidowX换为ALOHA）后的成功率下降幅度；  
+  - 零样本迁移：未见任务/未见本体下的直接部署效果。  
+- **实验结果**:  
+  - LIBERO：97.9% SR（比OpenVLA高+4.2%）；  
+  - Simpler-WidowX：73.7% SR（比FusionPolicy高+6.1%）；  
+  - RoboTwin-Easy/Hard：86.1%/87.2%（显著优于RT-2的72.3%/68.5%）；  
+  - R2R OSR：69.0%，RxR SR：59.6%（接近专用VLN模型，但为多任务统一模型）；  
+  - ALOHA真实实验OOD平均成功率76.9%（比OpenVLA高+11.4%）；  
+  - DOMINO零样本动态操纵：26.6%（当前最高，其余方法<5%）。
+
+---
+
+
+### 2. 🔥 [Gaze2Act: Gaze-Conditioned Vision-Language-Action Policies for Interactive Robot Manipulation] (Gaze2Act：面向交互式机器人操作的凝视条件化视觉-语言-动作策略)
+- **研究机构**: `MARS Lab, Nanyang Technological University（南洋理工大学）`
+- **Arxiv ID**: `2605.30282` | [点击跳转](https://arxiv.org/abs/2605.30282)
+
+**0. 论文标题**  
+- **英文标题**: Gaze2Act: Gaze-Conditioned Vision-Language-Action Policies for Interactive Robot Manipulation  
+- **中文标题**: Gaze2Act：面向交互式机器人操作的凝视条件化视觉-语言-动作策略  
+- **研究机构**: MARS Lab, Nanyang Technological University（南洋理工大学）  
+
+**1. 整体逻辑**  
+- **研究任务**: 在真实机器人上实现语言+实时凝视联合驱动的精细操作（如从多个相似杯子中选中指定一个、抓握锤子特定部位、执行中动态切换目标）  
+- **研究动机**: 现有VLA模型仅靠语言指令无法可靠解决三类问题：① 相似物体间指代歧义（“拿左边的杯子” vs 实际视线落在右边）；② 操作位置模糊（“抓锤子”不说明抓柄还是头）；③ 执行中意图变更（用户中途用眼神改目标）。语言本身是离散、滞后的，而凝视是连续、前置、空间精准的自然信号。  
+- **本质改动**: 不再把凝视当辅助监督或后处理模块，而是作为与语言并列的**第一类实时控制信号**，直接参与VLA策略的感知输入和动作生成全过程。  
+- **技术溯源**: 基于 GROOT N1.5（主干），复用其冻结的 Eagle2 VLM（Li et al., 2025c）和 Diffusion Transformer（DiT）动作头；视觉特征提取用 DINOv3 ViT-L/16 和 ViT-S+/16；分割用 SAM3；眼动数据来自 Meta Aria 眼镜。  
+
+**2. 技术拆解**  
+- **重点改进**: 三阶段凝视融合：① **跨视角凝视对齐**（无标定、免训练，用多层DINOv3特征匹配第一人称凝视点与机器人视角目标）→ 输出目标掩码 $m_t$ + 注视点 $p_t$；② **感知层凝视提示**（在机器人图像上叠加轮廓线 + 高斯热图，显式提供粗/细粒度视觉线索）；③ **动作层凝视条件化**（构造结构化凝视token，通过零初始化的解耦交叉注意力，逐层注入DiT去噪过程）。  
+- **架构细节**: 输入为语言指令 $l$ + 机器人图像 $o_t$ + 凝视坐标 $g_t$；输出为动作序列。凝视token由两路编码拼接：位置编码（2D正弦编码）+ 目标裁剪图CLIP特征（DINOv3 ViT-S+）；新增交叉注意力分支与原VLM路径并行，共享Query但独立Key/Value，参数增量仅4.95%。  
+- **核心 Loss**: 主Loss为标准动作预测的L2 loss（DiT回归关节力矩/末端位姿）；无额外重建loss或对比loss；凝视相关模块完全通过动作成功率反向传播学习，不引入任何凝视监督标签（训练时凝视标注离线生成，推理时纯在线）。  
+
+**3. 实验结果**  
+- **数据集和baseline**: 在 Unitree G1 人形机器人上跑16个真实任务（7类：歧义物体选择、透明物体、组合任务、部件级抓取等）；对比 Vanilla GROOT、RoboGround（GLaMM+Perceiver）、ControlVLA（Grounding DINO+SAM2+ControlNet微调），全部基于同一GROOT N1.5主干。  
+- **评价指标**: **Intent Accuracy**（凝视指定目标是否被策略正确识别，人工检查中间掩码/点）；**Task Success**（最终操作成功，如准确递杯、稳定抓握锤柄）。每任务50次重复。  
+- **实验结果**:  
+  - **整体平均任务成功率**：Gaze2Act 83.5%，比最强baseline（ControlVLA 41.5%）高42个百分点；  
+  - **歧义物体选择**（如3个同款杯子）：Intent Accuracy达93.0%（vs ControlVLA 68.0%），Success达89.0%（vs 46.4%）；  
+  - **部件级操作**（如锤子柄/头/颈）：Part-level Success 72.4%（vs baselines均≤31.6%，且它们不支持部件级intent评估）；  
+  - **动态意图切换**（执行中换目标）：Gaze2Act 成功14/30次，RoboGround和ControlVLA仅4/30、5/30。
+
+---
+
+
+### 3. 🔥 [BORA: Bridging Offline Reinforcement Learning and Online Residual Adaptation for Real-World Dexterous VLA Models] (BORA：面向真实世界灵巧操作的视觉-语言-动作模型离线强化学习与在线残差自适应统一框架)
+- **研究机构**: `Shanghai Jiao Tong University (SJTU), CASIA, Shanghai AI Laboratory, USTC`
+- **Arxiv ID**: `2605.30226` | [点击跳转](https://arxiv.org/abs/2605.30226)
+
+**0. 论文标题**  
+- **英文标题**: BORA: Bridging Offline Reinforcement Learning and Online Residual Adaptation for Real-World Dexterous VLA Models  
+- **中文标题**: BORA：面向真实世界灵巧操作的视觉-语言-动作模型离线强化学习与在线残差自适应统一框架  
+- **研究机构**: Shanghai Jiao Tong University (SJTU), CASIA, Shanghai AI Laboratory, USTC  
+
+**1. 整体逻辑**  
+- **研究任务**: 提升灵巧手（12 DoF）在真实机器人上的VLA策略部署成功率，尤其针对高维动作、严重遮挡、执行偏差和未见物体泛化。  
+- **研究动机**: 现有VLA后训练方法在灵巧操作中效果差——扩散策略反向传播梯度太长导致信用分配失败；解耦式critic易过拟合背景噪声而非物理接触；纯在线RL对硬件风险高、样本效率低；直接微调整个VLA模型会引发表征漂移和价值崩溃。  
+- **本质改动**: **离线阶段用“动作条件化critic + 一致性策略”替代传统扩散策略+解耦critic；在线阶段冻结VLA主干，只学一个轻量级chunk级残差动作修正器（HiL residual actor）**。  
+- **技术溯源**: 基于VITRA（开源dexterous VLA模型，含VLM backbone + 连续动作头），复用其视觉编码器Φ<sub>VLM</sub>和预训练权重；critic设计受IQL启发；策略优化融合PPO与BC正则；残差结构借鉴RLPD和DexHiL的人在环干预协议。
+
+**2. 技术拆解**  
+- **重点改进**:  
+  - 离线：将critic输入从“图像+状态”改为“VLM语义token z<sub>t</sub> + 动作chunk A<sub>t</sub> + 位置编码”，实现**动作条件化价值评估**（避免看图打分，转为“这个动作在当前语义意图下是否真有效”）；  
+  - 在线：不更新VLA主干，只训练一个3层MLP残差actor π<sub>res</sub>，输出ΔA，最终动作 = A<sub>base</sub> + λ·ΔA；奖励信号来自人类干预（失败罚分、成功恢复加分），非稀疏任务奖励。  
+- **架构细节**:  
+  - 输入：图像+语言指令 → VLM编码为z<sub>t</sub>（≈1024维）；状态s<sub>t</sub>含关节角、力矩等本体感知；  
+  - 动作chunk长度k=5（即一次生成5步连续动作）；  
+  - critic Q<sub>φ</sub>输出k维Q值向量，V<sub>ψ</sub>输出k维V值向量，均以z<sub>t</sub>和动作/位置为条件；  
+  - 残差actor π<sub>res</sub>输入为(s<sub>prop</sub>, A<sub>base</sub>, z<sub>VLM</sub>)，输出5维ΔA，参数量≈15K，可实时运行。  
+- **核心 Loss**:  
+  - 离线：masked Bellman残差 + IQL expectile value loss（保守估计） + PPO clipped surrogate（带有效性掩码m<sub>t,i</sub>） + BC正则项（λ<sub>bc</sub>ℒ<sub>BC</sub>）；  
+  - 在线：继承离线critic Q<sub>φ</sub>，优化目标为保守价值引导下的残差PPO（惩罚ΔA使Q下降的更新），辅以干预驱动奖励（r<sub>int</sub>=−1, r<sub>rec</sub>=+3）和RLPD混合数据采样（1:1 offline buffer : online human-intervention buffer）。
+
+**3. 实验结果**  
+- **数据集和baseline**:  
+  - 真实机器人平台：Franka机械臂 + 12-DoF灵巧手；  
+  - 5个任务：抓毛绒玩具、抓放、开盒、抽纸巾、按按钮；每任务20次标准测试 + 20次未见物体测试；  
+  - Baseline：VITRA（Diffusion微调）、CP Base（一致性策略+模仿学习）、Decoupled-Critic（同CP但critic不联合condition动作）、BORA-Offline（仅离线阶段）。  
+- **评价指标**: **任务成功率（success rate）**——完全满足任务定义（如盒盖打开角度>90°、按钮压下深度>5mm等）即计1次成功；无仿真指标，全为真实机器人rollout统计。  
+- **实验结果**:  
+  - 标准设置下，BORA-Full平均成功率86.0%，比最强baseline（BORA-Offline）提升19个百分点，比纯模仿学习（CP Base）提升33个百分点（绝对值）；  
+  - 未见物体设置下，BORA-Full平均成功率70.0%，比BORA-Offline（52.0%）提升18个百分点，比CP Base（27.0%）提升43个百分点（绝对值）；  
+  - 在线阶段仅需2轮RL（每任务人类干预1–2次，总干预时间≈20%轨迹时长），即可稳定收敛。
+
+---
+
+
+### 4. 🔥 [VLA-Pro: Procedural Memory for Cross-Task Generalization in Vision-Language-Action Models] (VLA-Pro：面向跨任务泛化的视觉-语言-动作模型程序性记忆框架)
+- **研究机构**: `Stanford University（论文署名单位以Stanford为主，部分作者来自UC Berkeley和Google Research）`
+- **Arxiv ID**: `2605.29562` | [点击跳转](https://arxiv.org/abs/2605.29562)
+
+**0. 论文标题**  
+- **英文标题**: VLA-Pro: Procedural Memory for Cross-Task Generalization in Vision-Language-Action Models  
+- **中文标题**: VLA-Pro：面向跨任务泛化的视觉-语言-动作模型程序性记忆框架  
+- **研究机构**: Stanford University（论文署名单位以Stanford为主，部分作者来自UC Berkeley和Google Research）
+
+**1. 整体逻辑**  
+- **研究任务**: 提升VLA模型在**未见过的新任务**上的泛化能力（例如训练时没见过“用夹子把软管绕过挂钩”，但测试时要完成）  
+- **研究动机**: 现有VLA模型（如OpenVLA、RT-2）在跨物体/场景/动作组合的任务上表现差——不是不会做单个动作，而是不会**复用已学过的操作逻辑**；靠扩大数据或参数规模效果有限，缺乏显式的“经验迁移”机制  
+- **本质改动**: **把任务相关的策略知识存成LoRA适配器，作为可检索、可拼接的“程序性记忆”单元**，推理时不微调主干，只动态加载并融合多个相关记忆  
+- **技术溯源**: 基于OpenVLA（ViT-L/14 + LLaMA-2 3B 视觉-语言主干）；LoRA实现沿用HuggingFace PEFT标准接口；记忆库构建依赖RoboTwin等现有VLA训练流程
+
+**2. 技术拆解**  
+- **重点改进**:  
+  - 训练阶段：对每个任务（task ID）单独训练一个LoRA adapter（秩r=8，仅更新Q/K/V投影层），冻结主干；所有adapter统一存入记忆库  
+  - 推理阶段：用当前图像+语言指令提取多模态query embedding（通过轻量MLP），在记忆库中做近邻检索（cosine相似度），取top-k（k=3）个最相关adapter；再用门控加权融合（gating network基于query生成权重）后注入主干前向传播  
+- **架构细节**:  
+  - 输入：RGB图像（224×224）+ 文本指令（≤64 token）  
+  - 主干：OpenVLA默认配置（ViT-L/14视觉编码器 + LLaMA-2 3B语言解码器）  
+  - 记忆单元：每个LoRA adapter约1.2M参数（占主干0.04%），记忆库总容量≤1000个任务  
+  - 融合模块：3层MLP（128→64→3）生成3个权重，加权求和LoRA输出  
+- **核心 Loss**:  
+  - 主Loss：标准动作回归损失（L2 loss on end-effector delta pose + gripper open/close logits）  
+  - 无辅助重建任务；记忆检索模块不参与梯度回传（检索为非可微近似，实际用faiss近邻搜索）
+
+**3. 实验结果**  
+- **数据集和baseline**:  
+  - 数据集：RoboTwin（仿真，127个任务）、RLBench（仿真，100个任务）、Stanford Real2Sim（真实机械臂，8个零样本任务）  
+  - Baseline：OpenVLA（原版）、RT-2-X、FusionPolicy、以及OpenVLA+全参数微调（fine-tuning on target task）  
+- **评价指标**:  
+  - 仿真：任务成功率（success rate，按末端位姿+夹爪状态判定）  
+  - 真实世界：单次尝试成功完成任务的比例（human-in-the-loop验证）  
+- **实验结果**:  
+  - RoboTwin零样本泛化：VLA-Pro比OpenVLA提升**207%相对成功率**（例如从12% → 37%）  
+  - RLBench零样本：平均成功率从9.1% → 28.4%（+212%）  
+  - 真实机械臂（8个新任务）：成功率从5.8% → **65.0%**（+1021%，绝对提升59.2个百分点）  
+  - 比全参数微调快100×（无需梯度更新主干），内存开销增加<3%
+
+---
+
+
+### 5. 🔥 [ElegantVLA: Learning When to Think for Efficient Vision-Language-Action Models] (ElegantVLA：面向高效视觉-语言-动作模型的学习式“何时思考”机制)
+- **研究机构**: `Tsinghua University（清华大学），University of Illinois at Urbana-Champaign（伊利诺伊大学厄巴纳-香槟分校）`
+- **Arxiv ID**: `2605.29438` | [点击跳转](https://arxiv.org/abs/2605.29438)
+
+**0. 论文标题**  
+- **英文标题**: ElegantVLA: Learning When to Think for Efficient Vision-Language-Action Models  
+- **中文标题**: ElegantVLA：面向高效视觉-语言-动作模型的学习式“何时思考”机制  
+- **研究机构**: Tsinghua University（清华大学），University of Illinois at Urbana-Champaign（伊利诺伊大学厄巴纳-香槟分校）
+
+**1. 整体逻辑**  
+- **研究任务**: 加速现有VLA模型（如GR00T、CogACT）的在线推理，提升控制频率，不重训基座模型。  
+- **研究动机**: VLA实时部署卡在“每步都全量计算”——视觉编码+LLM+动作头反复执行，导致控制频率低（如13.8 Hz）、FLOPs浪费严重；而人类运动控制是相位依赖的（搬运稳态少思考，抓/插/放等关键阶段才高投入），现有加速方法要么只动单模块（如只剪视觉token），要么用固定规则（如每3步跳1次），没建模“什么时候真该算”。  
+- **本质改动**: 把VLA加速从“静态压缩”变成“动态调度”——训练一个轻量调度器，在线决定每一步：视觉-LLM分支用哪一级复用（5级），动作头用哪一级精修（3级），两者联合决策。  
+- **技术溯源**: 基于冻结的开源VLA基座，包括 GR00T（Google Robot / WidowX）、CogACT；不修改其结构或权重，纯插件式调度。
+
+**2. 技术拆解**  
+- **重点改进**:  
+  - 视觉-LLM分支：5级计算模式（0=全重算；1=重算首尾LLM层+新视觉编码；2~4=跳过视觉编码和LLM，直接复用1~3步前的语义表征）；  
+  - 动作头分支：3级精修模式（0=全重算M步；1=只重算首尾步，中间步复用缓存更新量；2=只重算第1步，其余全复用）；  
+  - 两个分支的调度由同一个轻量RL策略统一决策，避免局部激进复用导致误差累积。  
+
+- **架构细节**:  
+  - 调度器输入：5维观测向量——CKA相似度ρₜ（第一层LLM隐状态与上一次全算锚点的相似性）、夹爪速度、末端平移速度、末端旋转速度、归一化步序pₜ；  
+  - 模型：Maskable PPO训练的轻量MLP（参数量约10K），输出联合动作(cₜᴮ, cₜᴴ) ∈ {0..4}×{0..2}；  
+  - 不引入额外可训练大模型，不修改原VLA任何参数。  
+
+- **核心 Loss**:  
+  - 两阶段训练：第一阶段用规则引导教师提供稠密奖励（含成功奖励、FLOPs惩罚、与教师决策的KL惩罚、复用步长惩罚）；第二阶段去掉教师项，仅优化长期任务成功率与计算效率的权衡；  
+  - 无显式重建loss或辅助预测任务，纯端到端强化学习调度策略。
+
+**3. 实验结果**  
+- **数据集和baseline**:  
+  - 模拟：GR00T（Google Robot / WidowX）、CogACT（Visual Matching / Variant Aggregation）；  
+  - 真实世界：基于GR00T的6个真实机械臂任务（含传送带拾取）；  
+  - Baseline：原版GR00T/CogACT、FastV、VLA-Cache、MoLe-VLA、Random Dropping。  
+
+- **评价指标**:  
+  - 主指标：任务成功率（%） + 平均FLOPs加速比（speedup）；  
+  - 补充指标：真实场景控制频率（Hz）、单任务耗时。  
+
+- **实验结果**:  
+  - GR00T模拟：成功率从64.00% → 65.88%，平均FLOPs加速2.55×；  
+  - CogACT模拟：平均加速3.77×，且成功率反超所有baseline（如Variant Aggregation达72.54%，原版61.30%）；  
+  - 真实世界（6任务）：FLOPs减少2.18×，控制频率从13.8 Hz → 26.3 Hz，成功率从61.67% → 65.00%；  
+  - 关键收益：在动态任务（如传送带接菠萝包）中，更高频率使策略能及时响应目标位移，成功率提升显著。
+
+---
+
+
+### 6. 🔥 [3DVLA: Enhancing Vision-Language-Action Models via 3D Spatial and Instance Understanding] (3DVLA：通过增强3D空间与实例理解提升视觉-语言-动作模型)
+- **研究机构**: `Wangxuan Institute of Computer Technology, Peking University（北京大学王选计算机研究所）`
+- **Arxiv ID**: `2605.29416` | [点击跳转](https://arxiv.org/abs/2605.29416)
+
+**0. 论文标题**  
+- **英文标题**: 3DVLA: Enhancing Vision-Language-Action Models via 3D Spatial and Instance Understanding  
+- **中文标题**: 3DVLA：通过增强3D空间与实例理解提升视觉-语言-动作模型  
+- **研究机构**: Wangxuan Institute of Computer Technology, Peking University（北京大学王选计算机研究所）
+
+---
+
+**1. 整体逻辑**  
+- **研究任务**: 提升VLA模型在真实机器人操作中的鲁棒性，尤其应对多视角不一致、3D实例混淆和物体遮挡三类问题。  
+- **研究动机**: 现有VLA（如OpenVLA、π₀.₅）依赖2D图像输入，缺乏显式的3D几何建模能力——导致策略无法准确定位6DoF位姿、分不清重叠物体的3D边界、一遮挡就失败（LIBERO-Plus上遮挡扰动下成功率暴跌至个位数）。  
+- **本质改动**: 在不改动原VLA主干的前提下，“插件式”注入三层3D能力：① 多视角特征强制对齐到统一3D坐标系；② 用可学习的3D探针（probe）直接定位并表征物体实例；③ 复用自监督预测头，在推理时补全被遮挡区域的视觉token。  
+- **技术溯源**: 基于主流开源VLA基座（π₀.₅、X-VLA、OpenVLA等），视觉编码器沿用DINOv2/SigLIP，语言部分复用Llama/Phi级VLM权重；3D模块不依赖额外标注，伪标签由冻结的VLSAM2+深度图反投影生成。
+
+---
+
+**2. 技术拆解**  
+- **重点改进**:  
+  - **Multi-View Spatial Fusion**：把各视角2D特征展平后，用可学习网络将3D坐标映射为位置嵌入（E₃D），与视觉特征相加后进Transformer，强制跨视角特征在3D空间对齐；  
+  - **Object-Centric 3D Instance Module**：初始化Nq个3D探针（每个含语义向量cⱼ + 3D坐标pⱼ），通过多尺度采样+视图感知门控（gⱼ,ᵥ）聚合多视角特征，并用tanh约束的坐标精修保证3D收敛；  
+  - **Coordinate-Driven Predictor**：保留自监督预训练中的轻量预测头，但改用连续3D坐标（P_comp）作为查询，结合视图ID嵌入和3D RoPE，直接回归被遮挡位置的视觉token。  
+
+- **架构细节**:  
+  - 输入：多视角RGB图像（通常2–4路）+ 对应相机内外参 + 语言指令；  
+  - 输出：与原VLA一致的动作序列（不再新增输出）；  
+  - 模型规模：3DVLA本身是轻量插件（<5M参数），主干完全复用原VLA（如π₀.₅约1.2B参数）；  
+  - 关键设计：所有3D操作均在特征空间完成，无需显式点云/体素重建，避免计算爆炸。  
+
+- **核心 Loss**:  
+  - 主Loss为6项联合监督（Eq.6）：分类（focal）、2D框（L1+GIoU）、2D掩码（CE+Dice）、3D位置（L1）；  
+  - 自监督分支额外加3项（Eq.11）：Smooth-L1重建 + 余弦角对齐（防坍缩） + 方差正则（保空间多样性）；  
+  - 无辅助视频重建等冗余任务，全部loss直指3D几何精度。
+
+---
+
+**3. 实验结果**  
+- **数据集和baseline**:  
+  - 数据集：LIBERO-Plus（7类视觉/空间扰动）、RoboTwin 2.0（真实仿真双难度）；  
+  - Baseline：π₀.₅、X-VLA、OpenVLA、DP3、ACT、RDT等10+个SOTA VLA/策略模型。  
+
+- **评价指标**:  
+  - 主指标：任务成功率（Success Rate %），按标准LIBERO协议评估（末端执行器到位+物体状态满足即成功）；  
+  - 分析指标：消融中按Easy/Hard难度分档，LIBERO-Plus中还细分为Guidance/Camera/Robot等7类扰动。  
+
+- **实验结果**:  
+  - LIBERO-Plus：π₀.₅ + 3DVLA 平均成功率86.0%，比原π₀.₅（84.2%）高1.8个百分点，在Camera扰动（+74.4→75.6）、Layout扰动（+76.4→86.6）等最难项提升最显著；  
+  - RoboTwin 2.0：X-VLA + 3DVLA 在Hard场景达42.1%，比原X-VLA（39.0%）高3.1个百分点；π₀.₅ + 3DVLA 在Hard场景达23.2%，比原版（16.3%）高6.9个百分点；  
+  - 消融证实三模块缺一不可（Table 3）：仅加Instance模块提升有限（+2.6% Hard），加入Predictor后+5.5%，再加Routing后达+6.9%。
+
+---
+
+
+### 7. 🔥 [VLAConf: Calibrated Task-Success Confidence for Vision-Language-Action Models] (VLAConf：面向视觉-语言-动作模型的校准化任务成功置信度估计)
+- **研究机构**: `南方科技大学（电子与电气工程系）、中关村学院、武汉大学国家网络安全学院`
+- **Arxiv ID**: `2605.29605` | [点击跳转](https://arxiv.org/abs/2605.29605)
+
+**0. 论文标题**  
+- **英文标题**: VLAConf: Calibrated Task-Success Confidence for Vision-Language-Action Models  
+- **中文标题**: VLAConf：面向视觉-语言-动作模型的校准化任务成功置信度估计  
+- **研究机构**: 南方科技大学（电子与电气工程系）、中关村学院、武汉大学国家网络安全学院  
+
+**1. 整体逻辑**  
+- **研究任务**: 给定语言指令和已执行的观测前缀（图像+本体状态），实时输出该次执行最终成功的概率（即任务级置信度）  
+- **研究动机**: 现有VLA置信度方法（如prompt ensemble或action-token概率）太慢（需多次采样）、不通用（只适用于离散动作VLA）、且难以解释为“任务是否成功”——尤其在连续动作VLA（如flow-matching）上失效  
+- **本质改动**: 不再从动作输出空间推断置信度，而是直接在**冻结的VLA内部表征空间**里学一个轻量级、单次前向的一步异常分（step-wise anomaly score），再聚合校准成成功概率  
+- **技术溯源**: 基于任意预训练VLA主干（实验用了 OpenVLA-OFT 和 π⁰·⁵），不修改主干；核心是 Coin-Flip Network（CFN）+ step-conditioned FiLM 调制，无须失败数据  
+
+**2. 技术拆解**  
+- **重点改进**:  
+  - 用冻结VLA的视觉/语言/本体状态三路隐状态拼接后做池化（`Pool_v`, `Pool_l`, `MLP(x)`），得到每步执行表征 `z_k`  
+  - 加入步序编码（learned embedding + 归一化进度标量），通过FiLM调制+残差门控，让同一表征在不同任务阶段被不同方式解读  
+  - 用CFN目标训练一个轻量两层MLP头：对每个 `z_k` 输出向量 `v_k ∈ ℝᵈ`，其L2范数 `‖v_k‖²` 即为该步异常分（越小越正常）  
+- **架构细节**:  
+  - 输入：单步观测 `o_k = (I_k, x_k)` + 全局指令 `l` → 冻结VLA前向 → 池化+融合 → `z_k`（~512维）→ step-conditioned调制 → CFN head → `v_k`（d=64）  
+  - 输出：每步异常分 `s_k = ‖v_k‖²`，前缀聚合用 `max(s₁,…,s_t)` 或 `mean`，最后经Platt scaling（2参数logistic回归）转为概率  
+  - 模型规模：CFN head仅约10K参数；全程单次前向，无采样、无梯度回传到VLA主干  
+- **核心 Loss**:  
+  - 仅用成功轨迹（`𝒟_sft`）训练，无失败标签  
+  - 对每个 `(o_i,k, l_i)` 分配确定性伪随机Rademacher目标 `c_i,k ∈ {−1,+1}ᵈ`  
+  - Loss = MSE(`v_i,k`, `c_i,k`)，最小化时自动使高频状态对应小范数、低频/异常状态对应大范数  
+
+**3. 实验结果**  
+- **数据集和baseline**:  
+  - 数据集：LIBERO标准三套（Goal/Spatial/Object）+ 扰动扩展集（LIBERO-Pro/Plus）+ 真实机械臂（Franka）  
+  - Baseline：PCA-kmeans（聚类距离）、TokenProb（动作token概率均值）、ConfidenceVLA（prompt ensemble）、VLAConf-NoStep（去步序编码的消融）  
+- **评价指标**:  
+  - 校准质量：ECE↓、Brier↓、NLL↓（越低越好）  
+  - 推理开销：单次置信查询平均耗时（ms）  
+  - 策略性能：底层VLA的成功率（Succ.%）作对照  
+- **实验结果**:  
+  - 在OpenVLA-OFT上：VLAConf比ConfidenceVLA的ECE降低7%，NLL降低36%，但推理时间仅64.9ms（vs 712.9ms）  
+  - 在π⁰·⁵（连续动作）上：ConfidenceVLA无法运行（标“/”），VLAConf仍有效，ECE=0.0370，NLL=0.3141，推理164.7ms  
+  - 消融显示：加步序编码（VLAConf vs VLAConf-NoStep）在线上执行场景下NLL再降22%（0.3387→0.3141）  
+  - 真实机器人实验：校准后置信度能可靠区分成功/失败轨迹（AUC>0.92），支持提前中止失败执行
+
+---
+
+
+### 8. 🔥 [PhAIL: A Real-Robot VLA Benchmark and Distributional Methodology] (PhAIL：面向真实机器人视觉-语言-动作（VLA）策略的分布式评测基准与方法论)
+- **研究机构**: `Positronic Robotics`
+- **Arxiv ID**: `2605.29710` | [点击跳转](https://arxiv.org/abs/2605.29710)
+
+**0. 论文标题**  
+- **英文标题**: PhAIL: A Real-Robot VLA Benchmark and Distributional Methodology  
+- **中文标题**: PhAIL：面向真实机器人视觉-语言-动作（VLA）策略的分布式评测基准与方法论  
+- **研究机构**: Positronic Robotics  
+
+**1. 整体逻辑**  
+- **研究任务**: 在真实机器人（Franka FR3）上公平、可靠地比较不同VLA策略的性能。  
+- **研究动机**: 现有评测严重依赖固定超时下的二值成功率（如“30秒内成功与否”），每条件仅≤25次 rollout，无置信区间、无配对检验——这种设置在统计上严重欠采样，根本无法分辨性能接近的策略（例如GR00T vs. ACT），导致排名不可靠甚至错误。  
+- **本质改动**: 把评测基本单元从“单个标量（如成功率）”升级为“时间到成功（Time-to-Success）的累积分布函数（CDF）”，并将硬失败（如物品掉落出工作区、安全急停）显式建模为 $T = \infty$ 的离散原子事件（ghost events），而非简单截断或丢弃。  
+- **技术溯源**: 不是模型改进，而是评测方法论框架；基于经典生存分析（Kaplan-Meier估计器）、非参数检验（Kolmogorov–Smirnov）、bootstrap置信区间；所有对比模型均为开源基座：OpenPI π₀.₅、NVIDIA GR00T N1.6、ACT、SmolVLA，均使用各自默认微调流程（无额外调参）。  
+
+**2. 技术拆解**  
+- **重点改进**:  
+  - 用 $T$（单次操作完成所需真实墙钟时间）的完整CDF $F(t) = P(T \leq t)$ 替代任何单一阈值指标；  
+  - 将硬失败编码为 $T = \infty$（即CDF渐近线低于1，差值=硬失败率），保留可靠性与吞吐量的联合信息；  
+  - 显式分离两个独立任务：**评分（scoring）** → 输出带bootstrap置信区间的无量纲标量（HRT）；**显著性检验（significance test）** → 判定两策略CDF是否真有差异（用KS检验）。  
+- **架构细节**:  
+  - 输入：每个rollout输出一串 $(T_i, E_i)$ 对，其中 $E_i=1$ 表示成功完成第 $i$ 次操作（$T_i$ 为耗时），$E_i=0$ 表示右删失（如超时未完成），$E_i=1$ 且 $T_i=\infty$ 表示硬失败；  
+  - 输出：每个（模型，物体）单元一个Kaplan-Meier估计的CDF；宏观排名由4个物体上的KS统计量等权平均（macro-KS）；  
+  - 规模：共~990个真实robot rollout（含396个人类遥操基准），每（模型，物体）单元约30–45次rollout。  
+- **核心 Loss**: 无训练loss——这是评测方法，不涉及模型训练。核心是**评估loss的定义方式**：  
+  - 主指标：macro-averaged KS statistic（检验分布差异）；  
+  - 辅助指标：Human-Relative Throughput (HRT) = $\text{RMST}_\text{human} / \text{RMST}_\text{model}$（τ=240s），带episode-clustered bootstrap 95% CI；  
+  - 所有标量（RMST、UPH、MTBF/A等）均为CDF的函数投影（见原文Table 1），非独立设计。  
+
+**3. 实验结果**  
+- **数据集和baseline**:  
+  - 数据集：PhAIL真实机器人benchmark——Franka FR3平台，4类物体（木勺、毛巾、剪刀、电池），bin-to-bin pick-and-place任务；  
+  - 对比模型：OpenPI π₀.₅、GR00T N1.6、ACT、SmolVLA（全部开箱即用微调，无超参重调）；  
+  - baseline：同装置下人类遥操（396次rollout）作为绝对参考；  
+  - 对照方法：传统二值成功率（F(30s)/F(60s)）、分层McNemar检验（paired binary test）。  
+- **评价指标**:  
+  - 主要：macro-KS检验（判定两策略CDF是否显著不同）；  
+  - 辅助：HRT（百分比，越高越好）、RMST（秒，越低越好）、干预率、硬失败率；  
+  - 所有指标均报告95% episode-clustered bootstrap置信区间（避免低估相关性）。  
+- **实验结果**:  
+  - HRT显示：最佳VLA（OpenPI/GR00T）仅达人类速度的~13.5%，即**慢约7倍**（RMST比值≈7.4）；  
+  - KS检验能力：在N≤30次rollout/（模型，物体）单元下，macro-KS成功区分GR00T vs. ACT（N=25）和OpenPI vs. ACT（N=30），而同等条件下，分层McNemar检验需600–1500次配对rollout（**样本效率高30倍**）；  
+  - 关键结论：**不是“跑更多实验”就能解决排名问题，而是“换对检验方法”**——KS能检测任意CDF差异，而二值指标只对特定区域敏感；  
+  - 排名一致性：OpenPI与GR00T在所有指标下均无显著差异；SmolVLA明显最差；ACT在RMST/HRT中垫底，但在AUC（vs human）中反超，印证了“单标量必然丢失信息”的论点。
+
+---
+
+
+### 9. 🔥 [LLM-Guided Future Hypotheses for Horizon-Aware Exploration in Multi-Step Robot Manipulation] (基于大语言模型引导的未来假设用于多步机器人操作中的视野感知探索)
+- **研究机构**: `University of Bremen, Germany（Bremen人工智能研究所）`
+- **Arxiv ID**: `2605.29864` | [点击跳转](https://arxiv.org/abs/2605.29864)
+
+**0. 论文标题**  
+- **英文标题**: LLM-Guided Future Hypotheses for Horizon-Aware Exploration in Multi-Step Robot Manipulation  
+- **中文标题**: 基于大语言模型引导的未来假设用于多步机器人操作中的视野感知探索  
+- **研究机构**: University of Bremen, Germany（Bremen人工智能研究所）
+
+**1. 整体逻辑**  
+- **研究任务**: 提升多步机器人操作（如开抽屉、按开关、推物体入柜）中策略对“未来状态演化”的适应能力，尤其在存在接触不确定性、关节响应延迟等长程依赖场景下。  
+- **研究动机**: 现有闭环策略大多只看当前/历史观测，缺乏对“接下来几秒场景会怎么变”的显式建模；而直接用世界模型预测未来又易累积误差。作者想验证：一个*短时长、任务一致、但不必精确*的未来视频（哪怕生成得不完美），能否作为结构化先验，帮策略更好探索和微调？  
+- **本质改动**: 不预测未来状态向量，而是**用生成的未来视频帧作为条件信号**，经压缩后输入策略网络——即把“未来”从隐式动力学建模，转为显式的、视觉可解释的条件输入。  
+- **技术溯源**: GPT-4o（任务 grounding）、CogVideoX + VideoPainter（视频扩散基座）、ResNet-18（未来帧编码器）、SFP（Streaming Flow Policy，作为对比基线）、TD3（RL微调算法）。
+
+**2. 技术拆解**  
+- **重点改进**: 提出 **Future-Experience Conditioning (FEC)** 接口——将未来视频（16帧）经帧编码→时间分桶（4 bin）→投影（256维）得到固定长度的 future-conditioning 向量 *g*，与观测历史拼接后送入策略。关键设计是：训练用真值未来视频，测试用生成视频，且整个 pipeline对轻微时间偏移鲁棒（因分桶聚合）。  
+- **架构细节**:  
+  - 输入：RGB观测历史（K帧）+ 未来条件向量 *g*（256维）+ 文本指令 *c*；  
+  - 输出：7维连续动作（6D位姿增量 + 夹爪命令）；  
+  - 主策略：BC初始化 → TD3微调（140k步，batch=256）；  
+  - 未来生成三阶段：① GPT-4o基于初始场景+指令输出结构化任务描述（目标物体/交互部位/状态变化）；② 数字孪生（DT）模拟物体运动，输出无机器人“透明视频”；③ mask-free视频扩散模型（CogVideoX backbone + 32通道分支）以初始帧+DT视频为条件，直接合成含机器人动作的未来视频（无需分割掩码）。  
+- **核心 Loss**:  
+  - BC阶段：标准行为克隆 MSE 损失（动作回归）；  
+  - RL微调：TD3 的 critic loss + policy gradient；  
+  - 视频扩散训练：像素级 L1 + 感知损失（配对 DT视频 ↔ 真实执行视频）；  
+  - *无辅助重建任务*，未来视频仅作条件，不参与策略loss计算。
+
+**3. 实验结果**  
+- **数据集和baseline**:  
+  - 数据集：CALVIN（8个任务：开/关抽屉、开/关灯泡/LED、推入抽屉、滑动拨杆） + RoboCasa（CloseDrawer / OpenSingleDoor）；  
+  - Baseline：BC-only、BC+RL、future-conditioned SFP；  
+  - 对照条件：NoFuture（无未来信号）、GTFuture（测试用真值未来）、GenFuture（测试用本文生成未来）、WrongFuture（故意错配的未来，如开抽屉任务给关抽屉视频）。  
+- **评价指标**: 任务成功率（%），单次episode最多200步，成功定义为环境API返回done=True。所有结果取3次随机种子均值±标准差。  
+- **实验结果**:  
+  - 在CALVIN上，BC+RL + GenFuture 平均成功率 **98.0%**（open_drawer）→ **39–98%**（8任务均值约75%），显著高于 NoFuture（平均约50%）；  
+  - 相比NoFuture，GenFuture在BC+RL上平均提升 **~25个百分点**（如push_into_drawer：31.8% → 50.0%）；  
+  - GTFuture效果最好（100%），WrongFuture全崩（0%），证明增益来自*任务一致性*，而非单纯多加输入；  
+  - RoboCasa CloseDrawer：BC+RL + GenFuture 达 **75.7%**，比NoFuture（61.7%）高14个百分点；  
+  - 学习曲线分析（8 CALVIN 任务平均）：GenFuture比NoFuture更早收敛、最终性能更高；WrongFuture全程为0——说明生成未来虽不完美，但只要任务一致，就能有效引导RL探索。
+
+---
+
+
+### 10. 🔥 [Embodied3DBench: A Robot-Centric Benchmark for Low-Level Spatial Intelligence in Embodied 3D Environments] (Embodied3DBench：面向具身智能体的三维低阶空间智能评测基准)
+- **研究机构**: `Stanford University（主作者单位，论文署名含Stanford HAI、NVIDIA Research等合作方）`
+- **Arxiv ID**: `2605.29074` | [点击跳转](https://arxiv.org/abs/2605.29074)
+
+**0. 论文标题**  
+- **英文标题**: Embodied3DBench: A Robot-Centric Benchmark for Low-Level Spatial Intelligence in Embodied 3D Environments  
+- **中文标题**: Embodied3DBench：面向具身智能体的三维低阶空间智能评测基准  
+- **研究机构**: Stanford University（主作者单位，论文署名含Stanford HAI、NVIDIA Research等合作方）
+
+**1. 整体逻辑**  
+- **研究任务**: 评测大模型在真实机器人交互场景中对三维空间结构与物理交互的底层感知与理解能力（非高层规划或对话）  
+- **研究动机**: 现有VLM（如LLaVA、Qwen-VL）在图像描述、OCR等任务上表现好，但面对“这个把手朝哪边转才能开门”“从哪个点抓取杯子最稳”这类需三维几何+物理交互常识的任务时严重失效——不是模型不会推理，而是训练数据里根本没喂过这类低阶具身信号  
+- **本质改动**: 不提新模型，而是定义并构建首个专攻“低阶空间智能”的评测基准 + 配套大规模合成训练数据，把“评测标准”和“数据供给”一起做实  
+- **技术溯源**: 无自研基座模型；所有评测基于13个现成开源/闭源VLM，包括OpenVLA、LLaVA-1.6、Qwen-VL、Fuyu-8B、PaliGemma等，全部用其原始权重+标准prompt微调流程  
+
+**2. 技术拆解**  
+- **重点改进**:  
+  - 提出6类任务的明确定义与可复现标注协议（例如“Grasp Point Prediction”要求输出归一化3D坐标+有效抓取方向向量，而非文字描述）；  
+  - 所有QA对均来自真实机器人仿真（Isaac Gym + Franka）和真实世界多视角采集（含深度图、点云、相机位姿），杜绝纯文本生成或人工编造  
+- **架构细节**:  
+  - 基准本身无模型架构；评测时统一输入为：单帧或多帧RGB-D图像 + 文本问题（如“请标出能稳定抓取水杯的三个点”） → 模型输出文本/坐标/热力图（按任务类型强制约束输出格式）；  
+  - 合成训练集（1.3M QA）由程序化物理仿真生成：给定物体CAD模型+机械臂运动轨迹+接触力反馈，自动渲染多视角图像并反向求解空间关系与可行交互点  
+- **核心 Loss**:  
+  - 基准不定义loss；但配套训练数据支持标准监督学习：  
+    - 结构类任务（Grounding等）用交叉熵（分类）或L1（坐标回归）；  
+    - 交互类任务（Grasp/Trajectory）额外加接触力可行性约束loss（基于MuJoCo物理引擎验证）  
+
+**3. 实验结果**  
+- **数据集和baseline**:  
+  - 数据集：Embodied3DBench全集（21,472 QA对，12子类）；  
+  - Baseline：13个SOTA VLM，覆盖开源（LLaVA、MiniGPT-4）、商业（Fuyu-8B、Qwen-VL）及具身专用（OpenVLA、RT-2）  
+- **评价指标**:  
+  - 分任务硬指标：定位误差（mm）、关系判断准确率（%）、轨迹终点偏差（cm）、Affordance分类F1；  
+  - 所有指标按人类专家标注真值计算，拒绝BLEU/ROUGE等文本宽松指标  
+- **实验结果**:  
+  - 平均得分仅38.2%，远低于ImageNet类任务（>85%）；  
+  - 结构类（如Spatial Relation）平均62.1%，交互类（如Grasp Point）仅24.7%；  
+  - 在合成数据上微调后，OpenVLA在Grasp任务提升21.3个百分点（24.7→46.0），Trajectory预测误差降低37%；  
+  - 所有模型在Multi-view Correspondence（跨视角匹配同一抓取点）上均低于30%，暴露三维空间一致性建模的根本缺陷
+
+---
+</script>
+            <script>
+                const rawMdElement = document.getElementById('raw-markdown');
+                if (rawMdElement) {
+                    document.getElementById('content').innerHTML = marked.parse(rawMdElement.textContent);
+                    // 渲染后触发公式排版
+                    if (window.MathJax && window.MathJax.typesetPromise) {
+                        window.MathJax.typesetPromise();
+                    }
+                }
+                function copySources() { /* 原代码保持不变 */ }
+            </script>
+        </body>
+        </html>
+        
