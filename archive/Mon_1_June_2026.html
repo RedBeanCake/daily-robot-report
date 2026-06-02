@@ -1,0 +1,306 @@
+
+        <!DOCTYPE html>
+        <html lang="zh-CN">
+        <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>🤖 具身大模型简报 - Mon, 1 June 2026 (VLA: 6 of 59 entries)</title>
+            <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.2.0/github-markdown.min.css">
+            <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+            <script>
+                window.MathJax = {
+                    tex: { inlineMath: [['$', '$'], ['\\(', '\\)']], displayMath: [['$$', '$$'], ['\\[', '\\]']] },
+                    options: { skipHtmlTags: ['script', 'style', 'textarea'] }
+                };
+            </script>
+            <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+            <style>
+                .markdown-body { box-sizing: border-box; min-width: 200px; max-width: 980px; margin: 0 auto; padding: 45px; }
+                @media (max-width: 767px) { .markdown-body { padding: 15px; } }
+            </style>
+        </head>
+        <body class="markdown-body">
+            <a href='../index.html' style='margin-bottom:20px; display:block;'>← 返回主索引</a>
+            <h1>🤖 具身大模型简报 - Mon, 1 June 2026 (VLA: 6 of 59 entries)</h1>
+            <div id="content"></div>
+            
+            <script type="text/markdown" id="raw-markdown">### 1. 🔥 [DeMaVLA: A Vision-Language-Action Foundation Model for Generalizable Deformable Manipulation] (DeMaVLA：面向泛化性可变形物体操作的视觉-语言-动作基础模型)
+- **研究机构**: `AIRC, Midea Group（主导）；Tongji University（合作）`
+- **Arxiv ID**: `2605.31286` | [点击跳转](https://arxiv.org/abs/2605.31286)
+
+**0. 论文标题**  
+- **英文标题**: DeMaVLA: A Vision-Language-Action Foundation Model for Generalizable Deformable Manipulation  
+- **中文标题**: DeMaVLA：面向泛化性可变形物体操作的视觉-语言-动作基础模型  
+- **研究机构**: AIRC, Midea Group（主导）；Tongji University（合作）
+
+---
+
+**1. 整体逻辑**  
+- **研究任务**: 让单个VLA模型在真实家庭场景中，用双臂机器人完成多类可变形物体（衬衫、裙子、裤子、毛巾）的端到端折叠，不依赖类别切换或人工干预。  
+- **研究动机**: 现有VLA系统要么为每类衣物训练独立策略（难部署），要么直接混合训练多任务（任务干扰严重，毛巾和裤子的折叠动作冲突导致性能掉点）；且真实折叠中微小失误（如抓角不准、布料未铺平）会随长时序累积成失败，静态演示数据覆盖不到这些状态。  
+- **本质改动**: 用“大范围真实双臂操作预训练 + 小范围人机协同纠错后训练”替代传统单阶段行为克隆；同时把动作生成从“离散token预测”改为“连续动作块的流匹配（flow matching）”，并精简动作专家结构以适配实时控制。  
+- **技术溯源**: 基于 Qwen3-VL（开源多模态基座，含视觉编码器+语言模型），复用其LLM部分构建动作专家；训练框架沿用 flow matching（如π₀）、training-time RTC（实时分块执行）等成熟技术。
+
+---
+
+**2. 技术拆解**  
+- **重点改进**:  
+  - **层对齐剪枝的动作专家**：不另起炉灶建动作头，而是复用Qwen3-VL的LLM结构，但每两层删一层（保留约50% transformer block），保持与视觉-语言主干的层间对应关系，降低计算开销（动作专家参数从4.0B→2.2B）；  
+  - **人机协同DAgger后训练**：不是收集全程示范，而是在真实机器人上跑混合折叠任务，只在失败时刻（如布料滑落、抓空）由人接管并修正，仅记录这些高价值纠错轨迹；  
+  - **训练时RTC（Real-Time Chunking）**：模拟实际部署延迟——模型一边生成新动作块，机器人一边执行旧块；训练时强制模型以“已执行的动作前缀”为条件预测剩余后缀，避免推理时需插值或重规划。  
+
+- **架构细节**:  
+  - 输入：三视角图像 + 自然语言指令（如“把毛巾对折两次”）+ 机器人本体状态（关节角、夹爪开合度）+ 带噪声的动作块（H=16步连续控制向量）；  
+  - 主干：Qwen3-VL（视觉编码器0.4B + 语言模型4.0B）；  
+  - 动作专家：2.2B参数，结构与Qwen3-VL的LLM对齐但稀疏化；  
+  - 总参数：6.6B（视觉0.4B + 语言4.0B + 动作专家2.2B）。  
+
+- **核心 Loss**:  
+  - 主Loss：条件流匹配损失（conditional flow matching loss），最小化模型预测的向量场与真实动作块梯度场之间的L2误差；  
+  - 辅助设计：无额外重建loss（如图像/视频重建），所有监督均来自动作轨迹；RTC训练中Loss仅作用于动作块的“待预测后缀”，前缀作为固定条件。
+
+---
+
+**3. 实验结果**  
+- **数据集和baseline**:  
+  - 数据集：预训练用~5000小时真实双臂操作数据（含整理、搬运、折叠等）；下游用自建真实家庭折叠基准（衬衫/裙子/裤子/毛巾各20次真实实验）+ RoboTwin仿真基准（50个双臂任务）；  
+  - Baseline：π₀（强VLA基线）、π₀.₅、X-VLA、ABot-M0、LingBot-VLA（仿真对比）；真实世界仅比π₀（同RTC设置，fine-tuned到折叠任务）。  
+
+- **评价指标**:  
+  - 仿真（RoboTwin）：50任务平均成功率（clean & randomized setting）；  
+  - 真实世界：四项指标——每类任务的成功率（SR，5分钟内完成且不掉落）、平均完成时间（失败按5分钟计，故时间指标隐含鲁棒性）；  
+
+- **实验结果**:  
+  - 仿真：DeMaVLA在RoboTwin上达88.42%（clean）/86.78%（randomized），显著高于π₀（65.92%/58.40%）及其他SOTA；  
+  - 真实世界单任务（仅衬衫）：DeMaVLA SR=100.0%，比π₀高20个百分点（80.0%→100.0%），时间略快（2:13→2:04）；  
+  - 真实世界多任务（四类混训单checkpoint）：DeMaVLA平均SR=92.5%，远超π₀的76.3%；其中最难的毛巾折叠，SR从55.0%→100.0%；平均耗时2:18 vs π₀的2:26。
+
+---
+
+
+### 2. 🔥 [HARP-VLA: Human-Robot Aligned Representation Learning for Vision-Language-Action Model] (HARP-VLA：面向视觉-语言-动作模型的人机对齐表征学习)
+- **研究机构**: `Tsinghua University（清华大学交叉信息研究院），Shanghai Qi Zhi Institute（上海期智研究院）`
+- **Arxiv ID**: `2605.31234` | [点击跳转](https://arxiv.org/abs/2605.31234)
+
+**0. 论文标题**  
+- **英文标题**: HARP-VLA: Human-Robot Aligned Representation Learning for Vision-Language-Action Model  
+- **中文标题**: HARP-VLA：面向视觉-语言-动作模型的人机对齐表征学习  
+- **研究机构**: Tsinghua University（清华大学交叉信息研究院），Shanghai Qi Zhi Institute（上海期智研究院）
+
+**1. 整体逻辑**  
+- **研究任务**: 利用大规模人类操作视频预训练通用机器人策略（VLA），解决人与机器人因形态差异导致的视觉表征和动作语义不一致问题。  
+- **研究动机**: 现有方法用人类视频预训练VLA时，直接把人和机器人的视频喂给同一个视觉编码器，结果人和机器人相似动作在特征空间里离得很远；而latent action模型又依赖这些错位的视觉特征，导致学出来的“隐动作”也带形态偏见，没法跨域共训。  
+- **本质改动**: 不再让人和机器人视频强行共享一个编码器，而是固定人类侧编码器（用预训练ViT），只轻量适配机器人侧编码器；同时用配对人机视频做“跨形态预测”（如用人视频推机器人下一帧），并设计新损失函数让机器人特征既靠近配对人类语义，又保持不同任务对之间的可区分性。  
+- **技术溯源**: 基于OpenVLA主干（含ViT视觉编码器 + LLaMA语言编码器 + Transformer动作解码器）；视觉编码器冻结ViT主干，加轻量adapter（Tθ）适配机器人输入；latent action模块基于VQ-VAE结构，含逆/前向动力学建模。
+
+**2. 技术拆解**  
+- **重点改进**:  
+  - 视觉侧：双路径编码——人类视频直过冻结ViT（F(H)），机器人视频走adapter微调路径（T(R)），二者输出对齐到同一语义空间；  
+  - 动作侧：latent action模型（HARP-LAM）统一处理人/机器人视频，支持两种预测模式：① 同形态自预测（R→R, H→H），② 跨形态互预测（H→R, R→H），强制latent action能解释对方的动力学；  
+  - 对齐损失：提出source-relative pair-discriminative loss（SR+PD），不追求人机特征绝对等距，而是要求“机器人特征比原始ViT输出更接近配对人类特征”，且“配对样本间的距离显著小于非配对样本”。  
+
+- **架构细节**:  
+  - 输入：单帧图像（224×224）+ 语言指令（tokenized）；  
+  - 视觉编码器：ViT-B/16主干冻结，机器人分支加一层轻量CNN+MLP adapter（参数量<0.5M）；  
+  - latent action模块：VQ-VAE结构，每帧转移生成4个离散token（codebook size=1024）；  
+  - 辅助监督：引入2D物体轨迹（K）和腕/末端执行器轨迹（E）作为共享运动线索，用Huber loss约束latent action编码器输出；  
+  - 模型规模：整体为OpenVLA级（ViT-B + LLaMA-3B + 12-layer Transformer policy head），HARP-LAM单独训练，参数增量可忽略。  
+
+- **核心 Loss**:  
+  - 主Loss：ℒ<sub>lam</sub> = MSE重建loss（预测下一帧patch token） + VQ codebook loss；  
+  - 辅助Loss：ℒ<sub>aux</sub> = λ<sub>K</sub>·Huber(K<sub>pred</sub>, K<sub>gt</sub>) + λ<sub>E</sub>·Huber(E<sub>pred</sub>, E<sub>gt</sub>)；  
+  - 对齐Loss：ℒ<sub>align</sub> = ℒ<sub>SR</sub> + ℒ<sub>PD</sub>，其中ℒ<sub>SR</sub>是triplet margin loss（拉近T(R)与F(H)，推开F(R)与F(H)），ℒ<sub>PD</sub>是pair-discriminative loss（确保配对(H,R)比随机(H,R′)或(H′,R)更近）。  
+
+**3. 实验结果**  
+- **数据集和baseline**:  
+  - 数据集：配对数据（RH20T、Human2Robot、自建Robotera Xhand），非配对数据（OpenEgo人类视频 + Bridge-V2机器人视频）；  
+  - baseline：Unadapted（原ViT）、HR-Align（对比学习基线）、HARP变体（HARP-L2/HARP-SR/HARP-SRPD）；下游VLA baseline为OpenVLA。  
+
+- **评价指标**:  
+  - 表征对齐：① 配对人机余弦距离（越小越好），② 跨形态检索Recall@1（H2R/R2H）；  
+  - 下游策略：CALVIN ABC→D任务平均成功步长（越长越好），真实世界任务成功率（%）。  
+
+- **实验结果**:  
+  - 表征对齐：HARP-SRPD将平均配对余弦距离降低38.2%，跨形态检索平均R@1达78.5%（vs. unadapted 43.5%），显著优于HR-Align（45.2%）；  
+  - 下游性能：在CALVIN仿真中，HARP-VLA平均成功步长4.481（比最强baseline OpenVLA高0.612）；在真实世界机械臂任务中，成功率提升7.1个百分点（绝对提升）。
+
+---
+
+
+### 3. 🔥 [Primitive Subspaces Mediate Few-Shot Transfer in VLAs] (原语子空间介导视觉-语言-动作策略的少样本迁移)
+- **研究机构**: `Rellings Systems（作者单位，论文署名邮箱为 as@rellingsystems.com；无高校或大厂 affiliation，属独立研究团队）`
+- **Arxiv ID**: `2605.30695` | [点击跳转](https://arxiv.org/abs/2605.30695)
+
+**0. 论文标题**  
+- **英文标题**: Primitive Subspaces Mediate Few-Shot Transfer in VLAs  
+- **中文标题**: 原语子空间介导视觉-语言-动作策略的少样本迁移  
+- **研究机构**: Rellings Systems（作者单位，论文署名邮箱为 as@rellingsystems.com；无高校或大厂 affiliation，属独立研究团队）
+
+**1. 整体逻辑**  
+- **研究任务**: 让 VLA 模型在**不更新权重**的前提下，仅靠 1–10 个新任务的演示视频，就能执行训练时从未见过的工业装配任务（out-of-distribution task transfer）。  
+- **研究动机**: 当前 VLA 部署依赖逐任务微调（fine-tuning），但工业现场无法承受反复收集数据、重训练、停机部署的成本；需要模型具备“看几段视频就上手”的能力。作者发现：**不是所有训练方式都能支持这种能力**——用原始动作片段（primitive）切分并标注的数据训练，比用完整任务轨迹（flat trajectory）训练，更利于少样本迁移。  
+- **本质改动**: **训练数据组织方式的改变**：把同一段装配演示按“抓取”“插入”“压入”等原子动作切开，每段配专属语言提示（如“pick the USB connector”），而非统一用高阶描述（如“assemble the USB connector”）。模型结构、训练超参、LoRA 配置、数据总量全部保持一致，仅此一项不同。  
+- **技术溯源**: 基于两个开源 VLA 基座：OpenVLA（7B Llama-2 + ViT，autoregressive）和 π₀.₅（PaliGemma 视觉语言 backbone + flow-matching 动作专家，输出 16 步动作块）；所有实验复用其官方 LoRA 微调流程。
+
+**2. 技术拆解**  
+- **重点改进**: 不改模型结构，只改**训练数据的粒度与提示对齐方式**：flat 训练 = 全任务级提示 + 连续轨迹；primitive 训练 = 原语级提示 + 单原语片段（同一物理动作在不同物体上的多次出现被显式归为同一类）。  
+- **架构细节**: 输入 = 当前图像帧 + 任务语言描述 + **m 段演示的均值池化视觉特征（4 帧/段，拼接后 prepended 到 prompt）**；输出 = 动作（OpenVLA 离散 token，π₀.₅ 连续 chunk）；所有模型均用 LoRA（rank=32）微调，3 个随机种子（42/123/456），batch size=32，bf16。  
+- **核心 Loss**: 标准行为克隆 loss（action prediction cross-entropy 或 MSE），**无额外辅助任务**（如视频重建、对比学习等）；唯一监督信号来自动作标签本身。
+
+**3. 实验结果**  
+- **数据集和baseline**: 主实验在 REASSEMBLE（4551 段工业装配演示，含 17 个物体、4 类原语）；跨数据集验证用 LIBERO-Long（家庭操作多步任务）；baseline 包括：flat 训练+同套少样本机制、Octo-Small（演示嵌入训练）、Diffusion Policy、零样本原语规划器、全量微调上界（50 段 demo/fine-tune）。  
+- **评价指标**: **任务成功率**（end-state 物体位姿达标即成功），每 cell 在 6 个 held-out 任务上跑 50 次 rollout，报告 95% bootstrap 置信区间；关键比较点是 m=3 时 primitive vs flat 的 success gap。  
+- **实验结果**:  
+  - 在 REASSEMBLE 上，primitive 训练使模型在 **m=3 时达到 62–66% 成功率**，flat 训练仅 31–34%；primitive 在 m=3 就超过 flat 在 m=10 的表现（62% > 61%），**样本效率提升约 3×**（即省下 7 个 demo）；  
+  - 该优势跨架构（OpenVLA/π₀.₅）、跨种子（3 个 seed 范围无重叠）、跨数据集（LIBERO-Long 上 primitive/flat 比值仍达 1.66×）稳定复现；  
+  - 因果验证：在线性探针定位出的 44 维原语可解码子空间上做 inference-time ablation，成功率**暴跌 32pp**（62%→30%），而同样维度的随机子空间 ablation 几乎无影响（62%→60%），证实该子空间**因果必要**；  
+  - 注意边界：当 held-out 任务含训练中未见的原语类型（如“旋拧紧固”），primitive 训练反不如 flat（m=5 时 8% vs 14%），说明其优势限于**已知原语的重组**。
+
+---
+
+
+### 4. 🔥 [Hide-and-Seek in Trajectories: Discovering Failure Signals for VLA Runtime Monitoring] (轨迹中的“捉迷藏”：面向VLA运行时监控的失败信号发现)
+- **研究机构**: `University of Wisconsin–Madison, Georgia Institute of Technology`
+- **Arxiv ID**: `2605.30834` | [点击跳转](https://arxiv.org/abs/2605.30834)
+
+**0. 论文标题**  
+- **英文标题**: Hide-and-Seek in Trajectories: Discovering Failure Signals for VLA Runtime Monitoring  
+- **中文标题**: 轨迹中的“捉迷藏”：面向VLA运行时监控的失败信号发现  
+- **研究机构**: University of Wisconsin–Madison, Georgia Institute of Technology  
+
+**1. 整体逻辑**  
+- **研究任务**: 在VLA（Vision-Language-Action）模型执行过程中，实时检测即将发生的动作失败（如抓取滑脱、放置偏移），并尽可能早地报警。  
+- **研究动机**: 现有方法要么依赖昂贵的步级人工标注（不现实），要么把整条失败轨迹所有时间步都标为“失败”（导致大量正常动作被误标，噪声大）；要么靠重采样/调用外部VLM判断（延迟高，无法实时）。需要一种轻量、免步级标注、低延迟的在线失败探测器。  
+- **本质改动**: 把失败检测从“分类问题”转为“粗监督下的信号定位问题”——仅用轨迹级标签（成功/失败），通过双粒度对比学习，自动发现轨迹中真正指示失败的关键动作步。  
+- **技术溯源**: 不基于特定大模型；直接作用于VLA策略的**动作嵌入（action embeddings）**，兼容OpenVLA（autoregressive）、π₀ 和 π₀.₅（flow-matching）等主流VLA基座，无额外预训练或冻结主干。
+
+**2. 技术拆解**  
+- **重点改进**: 提出两个对比损失：  
+  （1）**跨轨迹对比损失（inter-trajectory）**：强制一条失败轨迹里的最高分动作 > 一条成功轨迹里的最高分动作（即“最像失败的正常动作”），让模型聚焦真正异常的点；  
+  （2）**轨迹内对比损失（intra-trajectory）**：在失败轨迹中，自动定位分数上升最快的位置（proxy onset），并强制该位置之后的平均分 > 之前平均分，从而自发形成“前低后高”的时序结构。  
+- **架构细节**: 输入是VLA每步的动作嵌入序列（`h₁,…,hₜ`），经一个轻量单层LSTM（可换GRU/Transformer）输出每步失败分数 `sₜ ∈ [0,1]`；无视觉/语言输入，只用动作表征；窗口聚合（非重叠平均池化）降冗余。  
+- **核心 Loss**: `ℒ = ℒ_inter + λ ℒ_intra`，均为带margin的hinge loss；无重建、无分类交叉熵、无辅助任务；纯对比驱动，不引入任何外部监督信号。
+
+**3. 实验结果**  
+- **数据集和baseline**:  
+  - 数据集：LIBERO-10（仿真）、VLABench（仿真）、真实UFactory xArm 6平台；覆盖seen/unseen任务；  
+  - Baseline共12个：包括OOD类（Mahalanobis、k-NN）、多采样类（Cluster Entropy、ACE）、分类器类（SAFE）、token不确定性类（Entropy/NLL）、VLM判别类（GPT-5.2-based）。  
+- **评价指标**:  
+  - **bACC**（平衡准确率，主指标）；  
+  - **wACC**（加权准确率，反映实际部署不平衡）；  
+  - **TWA**（时间加权准确率，越早检出得分越高）；  
+  - 所有指标均在**共形预测（conformal prediction）** 下报告，保证假警率可控（α=0.15~0.25）。  
+- **实验结果**:  
+  - 在LIBERO上，对OpenVLA策略，bACC比最强baseline（SAFE）高 **+11.7%**；  
+  - 在真实机器人上，比VLM-based方法（GPT-5.2判别）**高+13.1% bACC，且速度超2000×**（VLM需秒级，本方法毫秒级）；  
+  - 检出时间紧贴人工标注的失败起始时刻（D.2节验证），无需时序标注；  
+  - 对unseen任务泛化稳定，未见明显性能下降。
+
+---
+
+
+### 5. 🔥 [AR Forcing: Towards Long-Horizon Robot Navigation World Model] (AR强制：面向长时程机器人导航的世界模型)
+- **研究机构**: `Institute for AI Industry Research, Tsinghua University；Shanghai Jiao Tong University；The University of Hong Kong；Lenovo`
+- **Arxiv ID**: `2605.31314` | [点击跳转](https://arxiv.org/abs/2605.31314)
+
+**0. 论文标题**  
+- **英文标题**: AR Forcing: Towards Long-Horizon Robot Navigation World Model  
+- **中文标题**: AR强制：面向长时程机器人导航的世界模型  
+- **研究机构**: Institute for AI Industry Research, Tsinghua University；Shanghai Jiao Tong University；The University of Hong Kong；Lenovo  
+
+**1. 整体逻辑**  
+- **研究任务**: 用扩散模型做机器人导航世界模型（预测未来多帧图像+对应位姿，支撑长时程闭环规划）  
+- **研究动机**: 扩散世界模型训练用“并行监督”（固定真值上下文，一次预测多帧），但推理是“自回归”（用自己上一步预测更新上下文再推下一步）——导致训练/测试分布不一致（exposure bias），长时程 rollout 严重漂移、结构崩塌、规划失效  
+- **本质改动**: 把训练过程改成和推理一致的自回归流程：每步只预测一帧 → 用该预测更新上下文 → 再预测下一帧 → 循环；**不改模型、不加新loss、不换采样器，只改训练时的上下文喂入方式**  
+- **技术溯源**: 基于 NWM [bar2025navigation]（CDiT backbone + Stable VAE tokenizer），复用其预训练权重和超参设置  
+
+**2. 技术拆解**  
+- **重点改进**: 在标准扩散训练循环中插入 context update 步骤：每步用模型当前预测的 clean latent（x̂₀）替换 context 最老一帧（滑动窗口），并施加 stop-gradient 防止梯度跨步爆炸  
+- **架构细节**: 输入 = 4帧上下文（VAE latent）+ 动作序列 + 相对时间嵌入；输出 = 单帧 latent 的噪声预测（epsilon-parameterized DiT）；模型规模同 NWM（XL-sized CDiT）；无额外模块  
+- **核心 Loss**: 完全沿用原始 diffusion loss（L₂ noise prediction），唯一变化是 loss 的期望采样来自模型自身 rollout 产生的 context 分布 pθ(c)，而非数据分布 pdata(c)；无辅助重建任务、无判别器、无分布对齐项  
+
+**3. 实验结果**  
+- **数据集和baseline**: 四个导航数据集（RECON / TartanDrive / SCAND / HuRoN）；对比 baseline：GNM（目标条件导航模型）、NoMaD（扩散策略）、NWM（当前SOTA扩散世界模型）  
+- **评价指标**:  
+  - 视觉质量：LPIPS（越低越好）、DreamSim（越低越好）、FID（越低越好）  
+  - 轨迹精度：ATE、RPE、最终位置误差（PosErr）、偏航角误差（YawErr）  
+  - 规划能力：闭环导航成功率（已隐含在 PosErr/YawErr 长时程恶化趋势中）  
+- **实验结果**:  
+  - 在 16s rollout 下，LPIPS 平均下降 12.7%（RECON 从 0.533→0.463，HuRoN 从 0.514→0.560*但其他三项全优）；DreamSim 平均下降 21.5%；FID 平均下降 8.9%  
+  - 轨迹误差显著收敛：以 RECON 为例，16s PosErr 降低 19.3%，YawErr 降低 22.1%  
+  - 零样本泛化更强：在未知环境（如 HuRoN 中未见过的场景）下，AR Forcing 的 rollout 仍保持结构连贯性，而 NWM 在 8–12s 后明显模糊/扭曲（见图1）  
+  - 消融证实：仅靠 context update + stop-gradient 就足够，无需预训练初始化微调或额外计算开销（训练成本与 baseline 基本持平）
+
+---
+
+
+### 6. 🔥 [ELAN4D: Embodiment-Centric 4D Supervision for Vision-Language-Action Models via Plug-and-Play Adaptation] (ELAN4D：面向具身智能的4D监督框架——通过即插即用适配增强视觉-语言-动作模型)
+- **研究机构**: `University of Oxford, The Chinese University of Hong Kong, Shenzhen, Tsinghua University, Shanghai Jiao Tong University 等（多单位合作，牛津、清华、上交、港中深为第一梯队）`
+- **Arxiv ID**: `2605.30484` | [点击跳转](https://arxiv.org/abs/2605.30484)
+
+**0. 论文标题**  
+- **英文标题**: ELAN4D: Embodiment-Centric 4D Supervision for Vision-Language-Action Models via Plug-and-Play Adaptation  
+- **中文标题**: ELAN4D：面向具身智能的4D监督框架——通过即插即用适配增强视觉-语言-动作模型  
+- **研究机构**: University of Oxford, The Chinese University of Hong Kong, Shenzhen, Tsinghua University, Shanghai Jiao Tong University 等（多单位合作，牛津、清华、上交、港中深为第一梯队）
+
+---
+
+**1. 整体逻辑**  
+- **研究任务**: 提升VLA模型（如π₀/π₀.₅）在机器人操作任务中的泛化能力，尤其应对摄像头位姿、背景、布局等分布外（OOD）扰动。  
+- **研究动机**: 现有VLA策略大多“只看当前、直接出动作”，缺乏对自身未来运动轨迹的显式建模；而现有4D监督方法（如GeoPredict、Pri4R）要么依赖外部3D追踪器（预处理贵）、要么把4D预测塞进VLM主干（破坏预训练表征），都不够轻量、鲁棒、易部署。  
+- **本质改动**: 不改VLM主干、不增推理开销，仅在动作专家（action expert）里加一个带stop-gradient的ControlNet式残差分支，用机器人本体关键点（关节+末端）的未来3D位移轨迹作4D监督信号。  
+- **技术溯源**: 基于OpenPI系列（π₀ / π₀.₅）——即PaliGemma VLM + 条件流匹配（conditional flow matching）动作专家；未改动VLM权重，所有改进均在动作模块侧。
+
+---
+
+**2. 技术拆解**  
+- **重点改进**:  
+  - **4D信号来源**：用机器人正向运动学（forward kinematics）从关节角（proprioceptive state）实时算出8–14个本体关键点（如肩/肘/腕/末端）在未来H步内的3D位移Δ𝐏ₜ₊ₕ = 𝐏ₜ₊ₕ − 𝐏ₜ；无需外部追踪、无遮挡、计算开销可忽略（≈1 CPU分钟/小时数据）。  
+  - **注入方式**：在动作专家每层加ControlNet-style控制分支（紫色路径）：对主干特征加stop-gradient → 过小MLP → 零初始化线性投影 → 残差叠加到主动作路径；该分支只学4D动态，不碰VLM。  
+  - **预测头**：额外挂一个轻量track decoder，输入是当前关键点位置𝐏ₜ + 控制分支输出𝐂ₜ，输出H×K×3的位移预测𝐘̂ₜ；训练完即丢弃，推理零成本。  
+
+- **架构细节**:  
+  - 输入：图像 + 语言指令 + 关节角（同原VLA）；输出：7维连续动作块（Δx, Δθ, gripper），完全不变。  
+  - 控制分支：每层加1个小型attention + zero-init linear（参数量≈0.5%主干）；track decoder：point MLP + ctrl MLP + broadcast + fusion MLP（总参数<1M）。  
+  - 模型规模：沿用π₀（~1B VLM + ~100M action expert）和π₀.₅（更大VLM + 更强action expert），ELAN4D仅增约1M参数。  
+
+- **核心 Loss**:  
+  - 主Loss：原条件流匹配损失ℒₐcₜ（imitation learning）；  
+  - 辅助Loss：ℒₜᵣₐcₖ = 平均ℓ₁误差（H×K个位移预测 vs 真值），只更新控制分支 + track decoder；  
+  - 关键约束：ℒₜᵣₐcₖ梯度被stop-gradient截断，绝不回传到VLM或原动作主干。
+
+---
+
+**3. 实验结果**  
+- **数据集和baseline**:  
+  - 数据集：LIBERO（标准仿真）、LIBERO-Plus（7类OOD扰动：相机/背景/布局/光照等）、RoboTwin2.0（双臂OOD）、3个真实世界任务（视觉鲁棒/空间泛化/时序推理）。  
+  - Baseline：π₀、π₀.₅（强基线）、OpenVLA、DreamVLA、GeoPredict、Pri4R等SOTA方法。  
+
+- **评价指标**:  
+  - 主指标：任务成功率（Success Rate, SR），按任务类别/扰动类型分组报告；  
+  - OOD鲁棒性：LIBERO-Plus整体SR及各扰动维度SR；  
+  - 真实世界：每任务20次重复试验的成功率。  
+
+- **实验结果**:  
+  - LIBERO（标准）：π₀.₅ → ELAN4D(π₀.₅) 从96.9% → 97.0%（+0.1），但Long子集+1.8%（92.4→94.2），说明长时序受益明显；  
+  - LIBERO-Plus（OOD）：π₀.₅ → 73.6% → **78.2%（+4.6）**，大幅领先GeoPredict（75.3%）、Pri4R（74.2%），在背景扰动上+9.0、布局扰动上+1.1；  
+  - RoboTwin2.0（双臂OOD）：π₀.₅ → 32% → **37%（+5）**，Dump Bin任务从37%→49%，Lift Pot从5%→15%；  
+  - 真实世界：π₀.₅在视觉鲁棒/空间泛化/时序推理三任务上分别从50%→80%、15%→65%、5%→45%，其中时序任务+40个百分点，验证了4D监督抑制误差累积的效果；  
+  - Ablation证实：收益来自4D监督本身（+4.6），而非单纯加参数（control branch不接4D时反降0.3）；用机器人关键点比全场景点效果相当（78.2 vs 79.3），但预处理成本低两个数量级。
+
+---
+</script>
+            <script>
+                const rawMdElement = document.getElementById('raw-markdown');
+                if (rawMdElement) {
+                    document.getElementById('content').innerHTML = marked.parse(rawMdElement.textContent);
+                    // 渲染后触发公式排版
+                    if (window.MathJax && window.MathJax.typesetPromise) {
+                        window.MathJax.typesetPromise();
+                    }
+                }
+                function copySources() { /* 原代码保持不变 */ }
+            </script>
+        </body>
+        </html>
+        
