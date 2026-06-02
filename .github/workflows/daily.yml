@@ -2,7 +2,7 @@ name: Daily VLA Report
 
 on:
   schedule:
-    - cron: '0 6 * * 1-5' # 北京时间 14:00
+    - cron: '0 2 * * 1-5' # 周一至周五北京时间 10:00 触发
   workflow_dispatch:
     inputs:
       paper_ids:
