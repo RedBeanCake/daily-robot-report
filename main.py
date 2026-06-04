@@ -32,8 +32,8 @@ def scrape_arxiv(category):
         if not dls: return None, 0, []
         
         # 提取标题日期
-        # raw_date_str = soup.find_all('h3')[0].text.strip()
-        raw_date_str = soup.find_all('h3')[1].text.strip() # yesterday
+        raw_date_str = soup.find_all('h3')[0].text.strip()
+        # raw_date_str = soup.find_all('h3')[1].text.strip() # yesterday
         match = re.search(r'^(.*)\(showing \d+ of (\d+) entries', raw_date_str)
         if match:
             date_prefix = match.group(1).strip()
@@ -43,10 +43,10 @@ def scrape_arxiv(category):
             total_entries = "0"
 
         papers = []
-        # dt_tags = dls[0].find_all('dt')
-        # dd_tags = dls[0].find_all('dd')
-        dt_tags = dls[1].find_all('dt') # yesterday
-        dd_tags = dls[1].find_all('dd') # yesterday
+        dt_tags = dls[0].find_all('dt')
+        dd_tags = dls[0].find_all('dd')
+        # dt_tags = dls[1].find_all('dt') # yesterday
+        # dd_tags = dls[1].find_all('dd') # yesterday
         
         for dt, dd in zip(dt_tags, dd_tags):
             link_tag = dt.find('a', title='Abstract')
