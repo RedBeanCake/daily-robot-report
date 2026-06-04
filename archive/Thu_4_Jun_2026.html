@@ -1,0 +1,292 @@
+
+        <!DOCTYPE html>
+        <html lang="zh-CN">
+        <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>🤖 具身大模型简报 - Thu, 4 Jun 2026 (VLA: 5 of 45 entries)</title>
+            <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.2.0/github-markdown.min.css">
+            <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+            <script>
+                window.MathJax = {
+                    tex: { inlineMath: [['$', '$'], ['\\(', '\\)']], displayMath: [['$$', '$$'], ['\\[', '\\]']] },
+                    options: { skipHtmlTags: ['script', 'style', 'textarea'] }
+                };
+            </script>
+            <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+            <style>
+                .markdown-body { box-sizing: border-box; min-width: 200px; max-width: 980px; margin: 0 auto; padding: 45px; }
+                @media (max-width: 767px) { .markdown-body { padding: 15px; } }
+            </style>
+        </head>
+        <body class="markdown-body">
+            <a href='../index.html' style='margin-bottom:20px; display:block;'>← 返回主索引</a>
+            <h1>🤖 具身大模型简报 - Thu, 4 Jun 2026 (VLA: 5 of 45 entries)</h1>
+            <div id="content"></div>
+            
+            <script type="text/markdown" id="raw-markdown">### 1. 🔥 [Potential-Guided Flow Matching for Vision-Language-Action Policy Improvement] (面向视觉-语言-动作策略改进的势引导流匹配方法)
+- **研究机构**: `Tsinghua University（第一作者单位，论文署名中1为清华，2为北大，3为中科院自动化所；主体工作由清华团队主导）`
+- **Arxiv ID**: `2606.04968` | [点击跳转](https://arxiv.org/abs/2606.04968)
+
+**0. 论文标题**  
+- **英文标题**: Potential-Guided Flow Matching for Vision-Language-Action Policy Improvement  
+- **中文标题**: 面向视觉-语言-动作策略改进的势引导流匹配方法  
+- **研究机构**: Tsinghua University（第一作者单位，论文署名中1为清华，2为北大，3为中科院自动化所；主体工作由清华团队主导）
+
+---
+
+**1. 整体逻辑**  
+- **研究任务**: 在混合质量数据（含成功演示、部分完成、可恢复错误、彻底失败）上提升VLA策略性能，不依赖外部critic。  
+- **研究动机**: 现有方法三难：全量行为克隆（BC）会学失败；过滤BC丢掉有用子轨迹；离线RL需额外大critic网络，增加训练开销与部署复杂度。核心问题是——能不能让生成策略自己提供“前瞻性打分”？  
+- **本质改动**: 把原flow policy的输出从纯动作块 `a` 扩展为 `(a, s)`，其中 `s` 是与动作对齐的成功势（success potential）向量；用同一套flow同时生成动作和打分，实现“自引导”best-of-K推理。  
+- **技术溯源**: 基于开源VLA flow backbone（π₀.₅ for simulation / π₀ for real-world），未修改主干结构；flow建模沿用标准Conditional Flow Matching（CFM）；优势估计借鉴AWR思想，但做了关键解耦。
+
+---
+
+**2. 技术拆解**  
+- **重点改进**:  
+  1. **解耦式优势加权流匹配（Decoupled AWR）**：仅对动作速度 `v^(a)` 应用指数优势权重 `wᵢₜ = exp(Aᵢₜ/τ)`，而对势速度 `v^(s)` 始终均匀监督（即失败样本也参与势学习）；防止“价值幻觉”（value hallucination）——即模型对失败动作仍给出高势预测。  
+  2. **单步前视估计器（One-step foresight）**：利用CFM在σ=0处的条件均值性质，用一次带stop-gradient的前向计算（`x̂₁ = x₀ + v_θ(x₀,0,c)`）得到上下文相关基线 `V̂ᵢₜ`，替代耗时的ODE积分，省去NFE开销。  
+  3. **自引导推理（Self-guided inference）**：采样K个噪声，各自积分flow得K组 `(a⁽ᵏ⁾, s⁽ᵏ⁾)`，按平均势 `∑sⱼ⁽ᵏ⁾/H` 排序选最优动作，无需额外网络或forward pass。  
+
+- **架构细节**:  
+  - 输入：多模态上下文 `cₜ = (o≤ₜ, ℓ)`（观测历史+语言指令）  
+  - 输出端点维度：`x = [a; s] ∈ ℝ^(H×(dₐ+1))`，其中 `a ∈ ℝ^(H×dₐ)` 是H步动作块，`s ∈ [0,1]^H` 是逐时间步的成功势；  
+  - 主干：复用现有π₀.₅（sim）或π₀（real）flow encoder-decoder，仅在输出头加一个轻量级势投影层（~1K参数）；  
+  - 模型规模：与基线完全一致（无额外参数负担）。  
+
+- **核心 Loss**:  
+  - 主Loss为两部分加权和（式16）：  
+    - **动作部分**：`wᵢₜ ⋅ ‖v_θ^(a)(x_σ,σ,c) − uᵢₜ^(a)‖²`（优势加权，聚焦高质量动作）；  
+    - **势部分**：`‖v_θ^(s)(x_σ,σ,c) − uᵢₜ^(s)‖²`（均匀权重，强制在失败样本上保持校准）；  
+  - 势目标 `uᵢₜ^(s)` 来自阶段级标注 `yᵢₜ ∈ {0,1}`（非全episode成败），广播为 `H` 维向量，保留部分成功信号。
+
+---
+
+**3. 实验结果**  
+- **数据集和baseline**:  
+  - **Sim**：5个BEHAVIOR-1K长程任务（Radio/Trash/Spray/Hotdog/Wash），混合数据=200专家+100自主rollouts；  
+  - **Real-world**：5个DexTeleop双臂任务（Paper-Roll/Trash/Cube-Stack/Food/Wipe），混合数据=VR专家+自主rollouts；  
+  - **Baseline**：Full BC、Filtered BC、IDQL（分离critic的offline RL）、FQL（flow-aware RL）。  
+
+- **评价指标**:  
+  - **Success Rate（SR）**：全episode完成率（二值）；  
+  - **Q-Score**：归一化阶段完成度（连续值，反映部分进展）；  
+  - **Compute**：GPU小时数、critic参数量、K=1/K=5推理延迟。  
+
+- **实验结果**:  
+  - **Simulation**：ForesightFlow平均SR达39.6%，**持平最强IDQL（39.0%）**，但优于BC（31.0%）、Filtered BC（31.6%）、FQL（34.4%）；平均Q-Score（0.46）**显著领先所有baseline**。  
+  - **Real-world**：平均SR达35.4%，**超越IDQL 2.8个百分点、Filtered BC 10.8个百分点**；在Cube-Stack（+3% SR）、Transfer-Food（+4% SR）等依赖部分进展的任务上增益最大。  
+  - **效率**：训练耗时**降低38%**（178 vs 287 GPU hrs），参数量减少**近500M**（仅增~1K势头参数）；K=5推理比IDQL快28ms（155 vs 183 ms）。  
+  - **Ablation**：解耦设计使Radio任务Stage 3完成率从42%→51%；单步估计器在ranking保真度上与高NFE参考一致；self-guided K=5将long-horizon成功率再提3–5%。
+
+---
+
+
+### 2. 🔥 [VISTA: Vision-Grounded and Physics-Validated Adaptation of UMI data for VLA Training] (VISTA：面向VLA训练的UMI数据视觉对齐与物理可行性验证框架)
+- **研究机构**: `Institute of AI (TeleAI), China Telecom；Lumos Robotics；University of Science and Technology of China；Northwestern Polytechnical University；Shanghai Jiao Tong University；East China University of Science and Technology；Harbin Institute of Technology；Fudan University`
+- **Arxiv ID**: `2606.04708` | [点击跳转](https://arxiv.org/abs/2606.04708)
+
+**0. 论文标题**  
+- **英文标题**: VISTA: Vision-Grounded and Physics-Validated Adaptation of UMI data for VLA Training  
+- **中文标题**: VISTA：面向VLA训练的UMI数据视觉对齐与物理可行性验证框架  
+- **研究机构**: Institute of AI (TeleAI), China Telecom；Lumos Robotics；University of Science and Technology of China；Northwestern Polytechnical University；Shanghai Jiao Tong University；East China University of Science and Technology；Harbin Institute of Technology；Fudan University  
+
+**1. 整体逻辑**  
+- **研究任务**: 用UMI（通用操控接口）采集的人类手持演示数据，训练通用型Vision-Language-Action（VLA）模型，使其在真实机器人上可靠部署。  
+- **研究动机**: 直接用UMI数据训VLA效果差，主因两个硬伤：①腕部鱼眼相机图像严重畸变、局部视角、自遮挡，和VLM预训练用的标准视角图像分布不匹配；②人类随手画的轨迹常超关节极限、引发自碰撞、超出控制器带宽，但VLA模型照单全收，学出“物理幻觉”动作。  
+- **本质改动**: 不改模型结构，而是系统性地“清洗”UMI数据——先用鱼眼专用VQA数据对齐视觉表征，再用轨迹级物理验证筛掉不可执行轨迹，最后分阶段联合训练。  
+- **技术溯源**: 基于OpenVLA架构（VLM backbone + action head），复用其预训练权重；VQA构造依赖Bai et al. (2025) VLM和FLUX.2-dev扩散编辑模型；物理验证基于标准机器人运动学/碰撞检测库（如Pinocchio + FCL），非学习式。  
+
+**2. 技术拆解**  
+- **重点改进**:  
+  - **UMI-VQA**：首个8M规模鱼眼VQA数据集，含3M真实UMI鱼眼帧（人工校验+VLM初筛） + 5M RefSpatial视角图经扩散模型“重渲染”为鱼眼风格（非简单几何扭曲，而是语义感知的边缘补全）；  
+  - **物理验证流水线**：对每条原始UMI轨迹做三重审计——①轨迹连续性 & 运动学可达性（逆解是否发散）、②全臂自碰撞风险（用机器人URDF+时间戳点云扫描）、③控制器跟踪保真度（对比目标轨迹与PID/阻抗控制器仿真回放误差）；仅三者均通过才保留；  
+  - **两阶段训练**：Stage 1用UMI-VQA + 验证后离散动作token做自回归联合训练（对齐视觉-语言-动作token）；Stage 2冻结视觉语言编码器，用flow matching（Lipman et al., 2023）建模连续动作分布，拟合验证后轨迹的原始连续控制信号。  
+
+- **架构细节**:  
+  - 输入：双腕鱼眼图（左/右）+ 当前末端位姿/夹爪宽度 + 语言指令；  
+  - 输出：H步动作序列（6D位姿增量 + 夹爪开合）；  
+  - 模型规模：沿用OpenVLA-7B backbone（ViT-L/14 + LLaMA-2-7B），无参数量新增；  
+  - 训练数据：100K条物理验证通过的UMI轨迹 + 8M UMI-VQA样本。  
+
+- **核心 Loss**:  
+  - Stage 1：标准交叉熵（VQA文本预测 + 动作token预测）；  
+  - Stage 2：Flow matching loss（L2距离 between score function estimates）；  
+  - 无辅助重建任务（如视频重建），所有监督均来自VQA问答和真实动作。  
+
+**3. 实验结果**  
+- **数据集和baseline**:  
+  - 数据集：RoboTwin-UMI（仿真）、LIBERO-UMI（仿真）、20个真实机械臂操作任务（RealMan/AC one/Galaxea R1 Pro平台）；  
+  - Baseline：π₀.₅（state-of-the-art VLA）、LingBot-VLA、Wall-X、以及消融版（无VQA / 无物理验证 / 单阶段训练）。  
+
+- **评价指标**:  
+  - 仿真：任务成功率（success rate）；  
+  - 真实机器人：部署成功率（single-run success，不重试）、平均失败原因（关节超限/碰撞/跟踪丢失占比）；  
+  - 额外指标：VQA子任务准确率（Object Grounding, Spatial Reasoning等）。  
+
+- **实验结果**:  
+  - 在20个真实任务上，VISTA平均成功率78.3%，比π₀.₅（61.2%）高17.1个百分点，比LingBot-VLA（59.6%）高18.7个百分点；  
+  - 物理验证得分与真实部署成功率强相关（r=0.92），验证分前20%的轨迹集训练出的模型，部署成功率比随机采样高23.5%；  
+  - 加入UMI-VQA使VQA子任务平均准确率提升14.8%，且显著改善鱼眼场景下的空间推理（+21.3%）；  
+  - 消融显示：去掉物理验证导致真实部署失败率从12.7%升至43.1%（主因关节超限）；去掉UMI-VQA则VQA准确率跌14.8%，下游任务成功率降9.4%。
+
+---
+
+
+### 3. 🔥 [OSCAR: Omni-Embodiment Skeleton-Conditioned World Action Model for Robotics] (OSCAR：面向机器人学的全形态骨架条件化世界动作模型)
+- **研究机构**: `Peking University, University of Michigan, NVIDIA`
+- **Arxiv ID**: `2606.04463` | [点击跳转](https://arxiv.org/abs/2606.04463)
+
+**0. 论文标题**  
+- **英文标题**: OSCAR: Omni-Embodiment Skeleton-Conditioned World Action Model for Robotics  
+- **中文标题**: OSCAR：面向机器人学的全形态骨架条件化世界动作模型  
+- **研究机构**: Peking University, University of Michigan, NVIDIA  
+
+**1. 整体逻辑**  
+- **研究任务**: 构建一个能精准跟随动作指令、泛化到多种机器人本体（甚至人手）的视频世界模型，用于真实机器人策略评估。  
+- **研究动机**: 现有动作条件化世界模型在三方面不足：（1）动作跟随不准（帧级/像素级偏差大），（2）场景覆盖窄（数据多样性差），（3）跨本体泛化弱（换机械臂就失效）。尤其现有方法要么用隐式动作嵌入（跟不准），要么用高保真几何渲染（如点云/网格，过拟合外观，难迁移到新本体）。  
+- **本质改动**: 放弃隐式动作编码或纹理依赖型渲染，改用**纯运动学驱动的2D骨架投影图**作为统一动作条件——同一套渲染逻辑，换URDF就能适配任意机械臂或MANO人手。  
+- **技术溯源**: 基于 Cosmos-Predict2.5-2B（2B参数视频DiT，rectified flow训练） + WAN 2.1 VAE；数据和流程借鉴VAP（骨架渲染思路），但大幅扩展规模与质量控制。  
+
+**2. 技术拆解**  
+- **重点改进**:  
+  - 条件输入：将动作序列转为每帧2D骨架图（仅画关节连线+圆点，无纹理、无颜色），与首帧RGB一起送入VAE编码；  
+  - 注入方式：骨架图经同一VAE编码后，与视频潜变量逐token相加（非拼接或交叉注意力），保持时序对齐；  
+  - 数据端：构建首个跨4种机器人本体（Franka/KUKA/AgiBot/HSR）+2类人手（EgoDex/EPIC）的大规模清洗数据集（18万高质量片段）。  
+- **架构细节**:  
+  - 输入：首帧RGB + T帧骨架图（256×256，单通道灰度）；  
+  - 主干：Cosmos-Predict2.5-2B DiT（2B参数），单GH200 GPU微调；  
+  - 输出：T帧生成视频（经WAN 2.1 VAE解码）；  
+  - 骨架生成：基于URDF前向运动学→SE(3)位姿→相机投影→像素空间光栅化（线段+圆点），完全不依赖外观模型。  
+- **核心 Loss**:  
+  - 主Loss：Rectified Flow velocity prediction loss（公式1），与Cosmos原训练一致；  
+  - 无额外辅助任务（如视频重建、对比学习等），未引入重建loss或判别loss。  
+
+**3. 实验结果**  
+- **数据集和baseline**:  
+  - 测试集：自建200段跨4本体机器人操作视频（Franka/KUKA/AgiBot/HSR）；  
+  - Baseline：7个代表方法，覆盖text-only（Cosmos/TesserAct）、latent-action（IRASim/Ctrl-World/EnerVerse-AC）、explicit-geometry（Genie Envisioner/Kinema4D）。  
+- **评价指标**:  
+  - 生成质量：PSNR↑、SSIM↑、LPIPS↓、tLPIPS↓（时序一致性）、FVD↓、FID↓、潜变量L2↓；  
+  - 效率：FPS↑（同GH200 GPU实测）；  
+  - 策略评估有效性：RoboArena上7个DROID策略的虚拟评估与真实部署成功率的Pearson相关系数ρ↑、MMRV↓（排名保真度）、SISRΔ↓（成功率误差）。  
+- **实验结果**:  
+  - 生成质量：OSCAR在全部7项指标中**6项第一、1项第二**，显著优于14B参数的Kinema4D（FVD 7.08 vs 17.07，FID 15.07 vs 37.16）；  
+  - 效率：2.21 FPS，是Kinema4D（0.089 FPS）的25倍，且仅用1张GH200；  
+  - 策略评估：在RoboArena上，OSCAR的虚拟评估与真实部署成功率Pearson相关达**0.750**，MMRV=0.571（最低），SISRΔ=1.73pp（误差最小），均优于latent-action（ρ=0.643）和mesh（ρ=0.679）。
+
+---
+
+
+### 4. 🔥 [CLAW: Learning Continuous Latent Action World Models via Adversarial Latent Regularization] (CLAW：通过对抗性隐变量正则化学习连续隐动作世界模型)
+- **研究机构**: `University of Chicago, Toyota Technological Institute at Chicago, Argonne National Laboratory`
+- **Arxiv ID**: `2606.04130` | [点击跳转](https://arxiv.org/abs/2606.04130)
+
+**0. 论文标题**  
+- **英文标题**: CLAW: Learning Continuous Latent Action World Models via Adversarial Latent Regularization  
+- **中文标题**: CLAW：通过对抗性隐变量正则化学习连续隐动作世界模型  
+- **研究机构**: University of Chicago, Toyota Technological Institute at Chicago, Argonne National Laboratory  
+
+**1. 整体逻辑**  
+- **研究任务**: 仅用无动作标注的原始视频（action-free videos），联合学习一个世界模型 + 一套连续、语义清晰的隐动作表示（latent action）  
+- **研究动机**: 现有隐动作世界模型容易“作弊”——隐动作 z 直接编码下一帧视觉内容（future leakage），或坍缩成无意义表示（collapse），导致无法泛化到新任务/新机器人；同时，离散化（如VQ-VAE）限制控制粒度，而加少量动作标签又违背“纯视频自监督”初衷  
+- **本质改动**: 不用量化、不用动作标签、也不分阶段训练，而是让隐动作模型（LAM）和世界模型端到端互监督，并引入**对抗性隐变量正则化**——强制 z 只编码“动作效应”，不带未来画面信息  
+- **技术溯源**: 基于 ViT（视觉编码）、UViT（扩散主干）、标准扩散训练范式；未依赖 CLIP/OpenVLA/Llama3 等多模态基座，纯视觉自监督  
+
+**2. 技术拆解**  
+- **重点改进**:  
+  - 隐动作模型（LAM）输入连续两帧（oᵢ, oᵢ₊₁），输出单位球面上的连续向量 zᵢ ∈ ℝⁿ（ℓ₂ 归一化）  
+  - 世界模型是**条件扩散模型**：以首帧 oᵢ 和隐动作序列 {zⱼ} 为条件，预测后续帧序列；采用 UViT 架构，输入拼接为 `[timestep_emb, z_tokens, oᵢ_patches, noised_target_patches]`  
+  - **对抗正则化核心**：对同一 zᵢ，分别喂给世界模型两次——一次带 oᵢ（正常训练），一次**不带 oᵢ**（只喂 zᵢ）；后者路径插入梯度反转层（gradient reversal layer），使 LAM 被惩罚“仅靠 zᵢ 就能猜出下一帧”，从而逼它丢掉未来画面信息  
+- **架构细节**:  
+  - LAM：ViT backbone + MLP head → 输出 n 维连续隐动作（默认 n=64）  
+  - 世界模型：UViT（vision transformer for diffusion），输入图像分 patch，时间步和动作 token 做 position embedding，因果 attention mask 严格禁止跨帧窥探  
+  - 模型规模：未公开参数量，但实验中所有模块端到端联合训练，无冻结层  
+- **核心 Loss**:  
+  - 主 loss：标准扩散去噪 loss ℒ<sub>diff</sub> = 𝔼[‖ε − s<sub>ϕ</sub>(xᵗ, t, zᵗ, oᵢ)‖²]  
+  - 辅助 loss：对抗正则项 ℒ<sub>adv</sub> = δ × ℒ<sub>diff</sub>(zᵢ alone)，δ 从 0 渐进升至 0.999（sigmoid schedule）  
+  - 无重建 loss、无 KL 散度、无对比学习项  
+
+**3. 实验结果**  
+- **数据集和baseline**:  
+  - 数据集：VP2（Robosuite/RoboDesk）、OGBench（UR5e 开抽屉/按按钮）、Crafter（2D生存）、Procgen（Climber/Jumper/Ninja）、Something-Something V2（真实人类操作视频）+ UR5 真实机器人数据  
+  - Baseline：AdaWorld（β-VAE预训练LAM + 冻结后训世界模型）、LAPO（VQ-VAE离散隐动作）、LAPA（大规模VQ-VAE变体）  
+- **评价指标**:  
+  - 隐动作质量：ILfO（模仿学习从观察）成功率、最近邻动作检索（L₂距离下是否聚类同类运动）、动作迁移可视化  
+  - 规划能力：MPC-CEM 规划成功率（目标帧匹配率）  
+  - 真实机器人：三阶段任务（Push/Cover/Push&Cover Duck）的 staged progress completion score（0–2分制）  
+- **实验结果**:  
+  - Crafter 木头采集任务：CLAW（84% 成功率，4.46 平均木头） vs AdaWorld（46.5%，1.60）→ **+37.5pp / +2.86 绝对提升**  
+  - OGBench 开抽屉任务：CLAW（13.5%）vs AdaWorld（7.5%）→ **+6pp**；Close Drawer（42.0%）vs LAPO（39.5%）→ **+2.5pp**  
+  - Procgen 规划平均成功率：CLAW（62.1%）vs LAPO（52.5%）→ **+9.6pp**  
+  - 真实机器人 Push&Cover Duck：CLAW（1.7）vs AdaWorld（1.5）/ LAPA（1.3）→ **绝对领先 0.2–0.4 分**  
+  - 定性：最近邻检索显示，CLAW 的 z 空间按**末端执行器运动模式**聚类（如“推”“抓”“旋转”分离），而 baseline 混淆动作与物体外观
+
+---
+
+
+### 5. 🔥 [3DThinkVLA: Endowing Vision-Language-Action Models with Latent 3D Priors via 3D-Thinking-Guided Co-training] (3DThinkVLA：通过3D思维引导的协同训练，为视觉-语言-动作模型注入隐式3D先验)
+- **研究机构**: `Daimon Robotics（主导），Shanghai Jiao Tong University、Harbin Institute of Technology、Nanyang Technological University、Fudan University、Nanjing University、Great Bay University`
+- **Arxiv ID**: `2606.04436` | [点击跳转](https://arxiv.org/abs/2606.04436)
+
+**0. 论文标题**  
+- **英文标题**: 3DThinkVLA: Endowing Vision-Language-Action Models with Latent 3D Priors via 3D-Thinking-Guided Co-training  
+- **中文标题**: 3DThinkVLA：通过3D思维引导的协同训练，为视觉-语言-动作模型注入隐式3D先验  
+- **研究机构**: Daimon Robotics（主导），Shanghai Jiao Tong University、Harbin Institute of Technology、Nanyang Technological University、Fudan University、Nanjing University、Great Bay University  
+
+**1. 整体逻辑**  
+- **研究任务**: 提升VLA模型在仅用2D图像输入下的3D空间推理能力（如判断物体相对位置、朝向、可操作性），从而提升机器人操作鲁棒性。  
+- **研究动机**: 发现现有VLA协同训练（co-training）存在“提示诱导的推理断层”——模型在3D问答提示下能激活空间推理，但在标准动作指令（如“抓取杯子”）下却绕过该能力，退化为依赖图像局部纹理或动作捷径（action shortcuts），导致泛化差、注意力飘移、真实场景失败。  
+- **本质改动**: 不再强行让VLA“学会生成3D描述”，而是把3D几何感知（低层）和3D空间推理（高层）解耦，在隐空间分别注入，并用一个共享的“推理锚点token”在线蒸馏，把老师分支的3D思考能力无声地迁移到学生分支的动作预测路径中。  
+- **技术溯源**: 基于 Qwen3-VL-2B（开源多模态大模型） + OFT-style action head（轻量动作头）；3D几何对齐使用 VGGT（Wang et al., 2025a，3D foundation model）；3D协同训练数据来自真实世界图像+人工标注的3D空间问答（见附录D）。  
+
+**2. 技术拆解**  
+- **重点改进**:  
+  - **不改主干**：所有3D增强模块均为轻量适配器（geometry adapter + reasoning adapter），训练后仅保留这两个小模块（<0.5%参数），推理时完全丢弃VGGT和teacher分支；  
+  - **双通道注入**：几何模块对齐中间视觉特征（第18层）与VGGT输出，获取低层几何线索；推理模块用同一个`[R]` token作为teacher/student共用锚点，teacher端强制其作为首个输出token以强化表征，student端将其插入任务指令后、动作指令前，实现隐式条件注入；  
+  - **防捷径设计**：将几何和推理特征经投影后，与action-query token做元素级相加（非拼接/交叉注意力），作为分层空间条件直接送入action head，避免模型忽略空间信息。  
+
+- **架构细节**:  
+  - 输入：单帧2D RGB图像 + 任务指令（如“打开抽屉”）+ 动作查询token（τₐ）；  
+  - 主干：Qwen3-VL-2B（2B参数），vision encoder提取中间特征；  
+  - 辅助模块：geometry adapter（MLP+LN）、reasoning adapter（MLP+LN），均<1M参数；  
+  - 输出：7维末端执行器动作（Δx, Δθ, 夹爪状态）。  
+
+- **核心 Loss**:  
+  - 主Loss：动作预测的L1 loss（`ℒ_action`）；  
+  - 辅助Loss：几何对齐损失 `ℒ_geo = 1 − cosine_sim(F³ᴰ, ℱ^Geo)`（patch级对齐）；  
+  - 推理蒸馏损失 `ℒ_reasoning = 1 − cosine_sim(H_teacher^R, ℛ(H_student^R))`（token级相似性）；  
+  - 协同训练Loss：VLM分支的交叉熵loss（`ℒ_vlm = λ₃D × CE`），且强制teacher分支的`[R]` token为首个输出token；  
+  - 总Loss：`ℒ_total = ℒ_action + λ_a ℒ_geo + λ_d ℒ_reasoning + λ_3D ℒ_vlm`。  
+
+**3. 实验结果**  
+- **数据集和baseline**:  
+  - 数据集：LIBERO（4个子套件）、LIBERO-PLUS（7种扰动：相机/机器人/光照/背景/噪声/布局等）、SimplerEnv、真实机器人操作任务；  
+  - Baseline：OpenVLA、OpenVLA-OFT、π₀、SpatialVLA、GeoVLA、3D-CAVLA、CoT-VLA、VITA等10+主流方法。  
+
+- **评价指标**:  
+  - 主指标：任务成功率（%），即单次rollout是否完成全部步骤（严格success/fail二值判定）；  
+  - LIBERO-PLUS额外报告各扰动维度下的成功率，用于评估鲁棒性。  
+
+- **实验结果**:  
+  - LIBERO平均成功率98.7%，超当前SOTA（SpatialForcing 98.5%）0.2个百分点，且在Spatial和Object两个子集达到100%；  
+  - LIBERO-PLUS平均成功率81.0%，显著领先第二名ABot-M0（80.5%）和Qwen3-VL-OFT（75.0%），尤其在Camera（+13.4）、Layout（+7.3）、Noise（+9.9）等扰动下优势明显；  
+  - 真实机器人任务上同样SOTA，且推理时**无需深度图/点云/外部3D模型/显式CoT文本生成**，纯2D图像输入，接口与标准VLA完全一致。
+
+---
+</script>
+            <script>
+                const rawMdElement = document.getElementById('raw-markdown');
+                if (rawMdElement) {
+                    document.getElementById('content').innerHTML = marked.parse(rawMdElement.textContent);
+                    // 渲染后触发公式排版
+                    if (window.MathJax && window.MathJax.typesetPromise) {
+                        window.MathJax.typesetPromise();
+                    }
+                }
+                function copySources() { /* 原代码保持不变 */ }
+            </script>
+        </body>
+        </html>
+        
