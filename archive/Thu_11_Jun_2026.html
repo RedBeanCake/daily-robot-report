@@ -1,0 +1,409 @@
+
+        <!DOCTYPE html>
+        <html lang="zh-CN">
+        <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>🤖 具身大模型简报 - Thu, 11 Jun 2026 (VLA: 9 of 55 entries)</title>
+            <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.2.0/github-markdown.min.css">
+            <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+            <script>
+                window.MathJax = {
+                    tex: { inlineMath: [['$', '$'], ['\\(', '\\)']], displayMath: [['$$', '$$'], ['\\[', '\\]']] },
+                    options: { skipHtmlTags: ['script', 'style', 'textarea'] }
+                };
+            </script>
+            <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+            <style>
+                .markdown-body { box-sizing: border-box; min-width: 200px; max-width: 980px; margin: 0 auto; padding: 45px; }
+                @media (max-width: 767px) { .markdown-body { padding: 15px; } }
+            </style>
+        </head>
+        <body class="markdown-body">
+            <a href='../index.html' style='margin-bottom:20px; display:block;'>← 返回主索引</a>
+            <h1>🤖 具身大模型简报 - Thu, 11 Jun 2026 (VLA: 9 of 55 entries)</h1>
+            <div id="content"></div>
+            
+            <script type="text/markdown" id="raw-markdown">### 1. 🔥 [World Pilot: Steering Vision-Language-Action Models with World-Action Priors] (World Pilot：利用世界-动作先验引导视觉-语言-动作模型)
+- **研究机构**: `中科院自动化所 (CASIA)、南京大学、北京航空航天大学`
+- **Arxiv ID**: `2606.12403` | [点击跳转](https://arxiv.org/abs/2606.12403)
+
+**0. 论文标题**
+- **英文标题**: World Pilot: Steering Vision-Language-Action Models with World-Action Priors
+- **中文标题**: World Pilot：利用世界-动作先验引导视觉-语言-动作模型
+- **研究机构**: 中科院自动化所 (CASIA)、南京大学、北京航空航天大学
+
+**1. 整体逻辑**
+- **研究任务**: 视觉-语言-动作模型 (VLA) 的机器人操作策略生成。
+- **研究动机**: 现有的 VLA 模型依赖静态图文对预训练，缺乏对物理世界连续接触和动态演变的理解。一旦遇到视角变化、物体几何改变或接触容差偏移等分布外 (OOD) 情况，策略就容易失效。
+- **本质改动**: 引入世界-动作模型 (WAM) 作为外部先验，通过“潜在空间引导 (Latent Steering)”和“动作引导 (Action Steering)”两条路径，把场景演变的动态先验和粗略的动作轨迹先验注入到 VLA 的决策链路中，从而提升 VLA 的泛化和鲁棒性。
+- **技术溯源**: VLA 基座采用 ABot-M0（包含 Qwen3-VL 视觉语言模型和基于 DiT 的 flow-matching 动作头）；世界模型基座采用 Cosmos Policy。
+
+**2. 技术拆解**
+- **重点改进**: 
+  1. 不用解码后的未来图像，而是直接用 WAM 预测的“场景演变潜在表示 (latent)”来增强 VLM 的特征，避免像素级细节（如光照、纹理、生成伪影）干扰底层的动态结构。
+  2. 把 WAM 预测的“预期动作轨迹”压缩成一个单一的先验 token，作为前缀输入给动作生成器，提供轨迹级别的运动趋势提示，而不是逐步去约束动作，避免被 WAM 的噪声带偏。
+- **架构细节**: 
+  - **输入**：当前视觉观察、语言指令、本体状态（可选）。
+  - **WAM 分支**：输出场景演变 latent 和预期动作轨迹。
+  - **Latent Steering（感知层）**：将场景演变 latent 经过动态编码器并加上时间位置编码，通过交叉注意力机制 (Cross-Attention) 以残差形式融合到 VLM 的隐藏状态中，增强时空动态感知。
+  - **Action Steering（动作层）**：将预期动作轨迹重采样并对齐到 VLA 的动作 horizon，通过动作编码器压缩成 1 个先验 token。该 token 作为前缀拼接到 flow-matching 动作生成器的输入序列中，参与去噪过程。
+  - **训练策略**：WAM 全程冻结，只更新 VLA 骨干和两个轻量级融合模块的参数。WAM 的前向传播可以提前计算并缓存，不增加训练时的显存和计算负担。
+- **核心 Loss**: 采用 flow-matching 的 clean-action 参数化。主 Loss 是预测的干净动作与专家动作之间的均方误差 (MSE)，并乘以速度空间的权重 $w(\tau) = 1/(1-\tau)^2$。没有引入视频重建等辅助 Loss，WAM 的先验纯粹通过条件注入 (conditioning) 发挥作用。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - **仿真数据集**：LIBERO（训练集），LIBERO-Plus（包含7种扰动的 OOD 测试集），RoboCasa（长序列厨房任务）。
+  - **真机任务**：4个操作任务（堆叠积木、叠毛巾、放水果、容器盖对齐），每个任务包含 1 个分布内 (ID) 和 2 个分布外 (OOD) 场景。
+  - **Baselines**：OpenVLA, $\pi_0$, $\pi_{0.5}$, ABot-M0, Cosmos Policy, DreamVLA 等主流 VLA 和世界模型方法。
+- **评价指标**: 任务成功率 (Success rate)。仿真主要看 LIBERO-Plus 的 Total 平均成功率；真机看各个 ID 和 OOD 场景下的成功率，以及从 ID 到 OOD 的性能下降幅度。
+- **实验结果**: 
+  - **仿真**：在 LIBERO-Plus 的 OOD 测试中，Total 成功率达到 84.7%，比最强基线 ABot-M0 (80.5%) 高出 4.2%。在视角 (Camera)、光照 (Light)、背景 (Background) 和噪声 (Noise) 扰动下提升最明显。
+  - **真机**：在所有 4 个任务的 12 个场景设置（包含 ID 和 OOD）中均取得最高成功率。在 OOD 场景下，World Pilot 的成功率下降幅度控制在 10-20 个百分点内，而基线方法普遍下降 25-50 个百分点。在要求高精度几何对齐的“容器盖对齐” OOD 任务中，World Pilot 成功率远超基线，证明了动态先验在接触丰富任务中的有效性。
+
+---
+
+
+### 2. 🔥 [APT: Action Expert Pretraining Improves Instruction Generalization of Vision-Language-Action Policies] (APT：动作专家预训练提升视觉-语言-动作策略的指令泛化能力)
+- **研究机构**: `浙江大学、浙江人形机器人创新中心`
+- **Arxiv ID**: `2606.12366` | [点击跳转](https://arxiv.org/abs/2606.12366)
+
+**0. 论文标题**
+- **英文标题**: APT: Action Expert Pretraining Improves Instruction Generalization of Vision-Language-Action Policies
+- **中文标题**: APT：动作专家预训练提升视觉-语言-动作策略的指令泛化能力
+- **研究机构**: 浙江大学、浙江人形机器人创新中心
+
+**1. 整体逻辑**
+- **研究任务**: 提升连续动作视觉-语言-动作（VLA）模型对分布外（OOD）语言指令的泛化能力，让机器人能真正听懂并执行未见过的操作指令。
+- **研究动机**: 现有的连续动作VLA模型（如 $\pi_0$）在遇到没见过的语言指令时经常失败。根本原因是VLA数据存在严重的结构性不平衡（一条轨迹有很多视觉-动作帧，但只对应一句语言指令）。这导致随机初始化的动作专家会走“视觉捷径”（忽略语言只看画面），而且它产生的噪声梯度还会破坏预训练VLM骨干的语言理解能力。
+- **本质改动**: 提出APT（动作专家预训练）方法。从贝叶斯角度把策略拆成“视觉-动作先验”和“语言条件似然”。第一阶段先不让动作专家看语言，只用视觉和动作数据把它训练好（建立视觉-动作先验）；第二阶段再把语言特征注入进去进行微调，从而避免动作专家走视觉捷径并保护VLM的语言能力。
+- **技术溯源**: 视觉语言模型（VLM）骨干基于 Qwen3-VL，动作专家是基于 Transformer 的扩散模型（Diffusion Policy）。
+
+**2. 技术拆解**
+- **重点改进**: 
+  1. **两阶段预训练策略**：Stage 1 冻结 VLM，动作专家只接收视觉 token 进行预训练，学习纯粹的视觉-动作映射；Stage 2 解除语言 mask，注入语言 token，联合微调 VLM 和动作专家。
+  2. **逐层门控融合机制**：改变以往只在最后层交互或简单拼接的做法，将 VLM 的中间层特征通过可学习的门控权重，逐层注入到动作专家的自注意力层中。
+  3. **动态网络扩容**：Stage 1 动作专家使用 N/2 层注意力层；Stage 2 在原有层之间插入新的 N/2 层，总层数变为 N。旧层保留视觉-动作先验，新层专门负责语言条件对齐。
+- **架构细节**: 
+  - **输入**：视觉 token、语言 token 和动作 token（包含历史动作、当前本体感受状态、带噪动作）。
+  - **动作专家结构**：基于 Transformer 的扩散模型，采用块级因果自注意力机制。去噪时间步通过 FiLM 注入。
+  - **特征融合**：从 Qwen3-VL 中均匀采样 N 个中间层特征，通过 Sigmoid 门控与动作专家对应层的特征相加。
+- **核心 Loss**: 
+  - 主 Loss 为扩散模型的标准去噪 Loss（负对数似然）。
+  - Stage 1 计算时 Mask 掉语言 token，仅计算视觉到动作的重建 Loss；Stage 2 计算完整的视觉-语言到动作的 Loss。无额外辅助任务。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - **仿真数据集**：LIBERO-PRO（包含物体位置扰动 Pos 和 任务指令扰动 Task）、Rigid Object Pick-Place（包含 Seen Object, Unseen Object, Unseen Container, Unseen Object & Environment 四个难度梯度）。
+  - **Baselines**：OpenVLA, $\pi_0$, $\pi_{0.5}$（使用了梯度截断 Knowledge Insulation）, LangForce, CaP-X。
+- **评价指标**: 任务成功率（Success rate %）。
+- **实验结果**: 
+  - 在 LIBERO-PRO 上，OpenVLA 和 $\pi_0$ 成功率为 0%（陷入视觉捷径）；$\pi_{0.5}$ 在位置扰动（Pos）上有效，但在指令扰动（Task）上接近 0；APT (联合微调VLM版) 平均成功率达到 27%，显著优于 $\pi_{0.5}$ 的 11% 和 LangForce 的 14%。
+  - 在 Pick-Place 任务中，APT 在最难的未见物体+未见环境（UOUE）设置下成功率达 58%，比 $\pi_{0.5}$ 的 50% 高出 8 个百分点。
+  - 真实世界实验中，在单任务泛化（如抓取未见物体）和组合任务泛化（连续执行多个指令）中，APT 的成功率和鲁棒性均明显优于 $\pi_{0.5}$。
+
+---
+
+
+### 3. 🔥 [CHORUS: Decentralized Multi-Embodiment Collaboration with One VLA Policy] (CHORUS：基于单一VLA策略的去中心化多具身协作)
+- **研究机构**: `Stanford University`
+- **Arxiv ID**: `2606.12352` | [点击跳转](https://arxiv.org/abs/2606.12352)
+
+**0. 论文标题**
+- **英文标题**: CHORUS: Decentralized Multi-Embodiment Collaboration with One VLA Policy
+- **中文标题**: CHORUS：基于单一VLA策略的去中心化多具身协作
+- **研究机构**: Stanford University
+
+**1. 整体逻辑**
+- **研究任务**: 多移动操作机器人的协作控制（如双人搬篮子、递书、拉卷尺等移动操作任务）。
+- **研究动机**: 现有的多机器人协作方法存在两难：中心化策略的输入输出空间随机器人数量线性膨胀，且推理时依赖机器人间的实时通信；去中心化策略（每个机器人一个模型）虽然推理独立，但为了解决部分可观测问题，通常需要在推理时共享队友的本体感知状态、第三人称视角或进行在线对齐，部署成本高。作者的核心洞察是：预训练VLA模型具备足够强的视觉运动先验，仅凭局部观测就能实现反应式的去中心化协作，无需推理时的通信或对齐。
+- **本质改动**: 微调一个预训练的VLA模型作为全局共享策略。推理时，每个机器人只输入自己的局部观测和一个“机器人身份提示（prompt）”，独立输出动作，完全不需要机器人间的通信。
+- **技术溯源**: 基于 $\pi_{0.5}$ 预训练 VLA 基座。
+
+**2. 技术拆解**
+- **重点改进**: 
+  1. **数据拆解**：将多机器人同步轨迹拆解为单机器人元组（局部观测、动作块、身份提示）。训练时模型永远看不到全局联合观测，强制其学习从局部视角推断协作意图。
+  2. **身份提示机制**：在输入中加入文本提示（如 `<ARX>`, `<Kinova>`），让单一模型明确当前正在控制哪个具身，从而输出对应的动作。
+  3. **频率自适应采样**：使用 Robot Sampler 混合不同机器人的数据。对于控制频率不同的机器人（如 YAM 频率是 Kinova 的两倍），通过上采样低频机器人的数据来保证训练均衡。
+- **架构细节**: 
+  - **输入**：单机器人的局部视觉观测（可变数量的图像 token） + 机器人身份文本提示。
+  - **输出**：该机器人的动作块（Action chunk）。动作维度通过 padding 适配不同具身（统一为32维），动作块的时间长度根据机器人的控制频率按比例缩放，确保所有机器人规划的时间窗口一致。
+  - **模型规模**：基座模型约 3B 参数，使用 LoRA (rank 16/32) 对 VLM 和动作专家进行微调。
+- **核心 Loss**: 
+  - 直接继承基座的 Flow-matching loss。主 Loss 为预测速度场 $v_\theta$ 与真实速度 $(\epsilon - A_r)$ 的均方误差（MSE）。没有引入额外的辅助任务（如视频重建等）。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - **数据集**：作者使用 TidyBot++ 遥操作平台收集的多机器人协作数据，涉及 Kinova, ARX, YAM 三种移动操作机器人。任务包括搬篮子、拉卷尺、递书和3机器人搬运。
+  - **Baseline**：
+    1. **Decentralized Diffusion**：从头训练的去中心化扩散策略（每个机器人独立训练一个）。
+    2. **CHORUS (w/o WS)**：不共享权重的去中心化 VLA（每个机器人单独微调一个 VLA 策略）。
+    3. **VLA Centralized**：中心化 VLA（输入所有机器人的联合观测，输出所有机器人的联合动作）。
+- **评价指标**: 
+  - **任务成功率 (Success rate)**：常规的任务完成比例。
+  - **队友反应能力 (Teammate reactivity)**：通过脚本横向扰动队友机器人，测试当前机器人能否及时调整动作以恢复协作（如递书时队友手抖，接书方能否跟上）。
+- **实验结果**: 
+  - **对比从头训练的扩散策略**：CHORUS 平均任务成功率高出 64 个百分点，证明预训练 VLA 的先验对多机器人协作有巨大帮助。
+  - **对比不共享权重的 VLA (w/o WS)**：在队友被扰动的测试中，CHORUS 的恢复成功率达到 85% (17/20)，比不共享权重的 45% (9/20) 高出 40 个百分点。证明权重共享能让模型在内部表征中更好地理解队友行为。
+  - **对比中心化 VLA**：CHORUS 的平均成功率超过中心化基线。原因是中心化方法输入维度变大，破坏了 VLA 预训练时的数据分布（如相机视角的语义对应关系被打破），导致性能下降。
+  - **扩展性**：无需修改任何架构，直接扩展到 3 个机器人协作。在 3 机器人过门搬运任务中达到了 90% 的成功率。
+
+---
+
+
+### 4. 🔥 [Learning What to Say to Your VLA: Mostly Harmless Vision Language Action Model Steering] (学习如何对你的VLA说话：基本无害的视觉语言动作模型引导)
+- **研究机构**: `Carnegie Mellon University (CMU)`
+- **Arxiv ID**: `2606.12299` | [点击跳转](https://arxiv.org/abs/2606.12299)
+
+**0. 论文标题**
+- **英文标题**: Learning What to Say to Your VLA: Mostly Harmless Vision Language Action Model Steering
+- **中文标题**: 学习如何对你的VLA说话：基本无害的视觉语言动作模型引导
+- **研究机构**: Carnegie Mellon University (CMU)
+
+**1. 整体逻辑**
+- **研究任务**: 在不微调底层VLA模型的前提下，通过生成和选择合适的自然语言指令（语言反馈策略，LFP）来实时引导冻结的VLA模型，提升机器人闭环控制的成功率。
+- **研究动机**: VLA模型对语言指令很敏感且脆弱，人类随手写的指令或大模型零样本生成的指令往往不能可靠地激发VLA的正确行为；此外，如果盲目在测试时修改指令，在分布外（OOD）场景下可能会“帮倒忙”（降低原本的成功率）。
+- **本质改动**: 设计了一个三阶段框架：先用视觉语言模型（VLM）给机器人视频加旁白来缩小语言搜索空间；再通过交互式搜索（让VLA实际跑一跑）找到真正有用的语言修改；最后训练一个“改进头”并结合共形预测（Conformal Prediction），让系统只在有把握提升性能时才修改指令，否则退回原指令，实现“无害”引导。
+- **技术溯源**: 底层冻结VLA使用 $\pi_{0.5}$ (Pi-0.5)；语言反馈策略（LFP）基座使用 Qwen3-VL-4B-Instruct；视频旁白生成使用 Molmo2-8B；语言序列扰动生成使用 GPT-5.4。
+
+**2. 技术拆解**
+- **重点改进**: 
+  1. **交互式语言搜索**：不盲目搜索全词表，而是基于视频旁白生成局部语言扰动，通过VLA闭环rollout评估哪个语言序列真正有效，并筛选出能带来正向收益的序列。
+  2. **无害引导机制（共形预测校准）**：训练一个回归头（改进头）预测语言修改带来的性能提升值。利用共形预测在OOD校准集上设定阈值，部署时只有当预测提升超过阈值时才使用修改后的指令，否则拒绝修改（fallback），防止在未知场景下性能退化。
+- **架构细节**: 
+  - **输入**: 当前视觉观测 $o_t$、本体状态 $s_t$、原始任务指令 $\ell_{task}$。
+  - **输出**: 修改后的语言指令 $\ell_t$（由4B参数的LFP生成），然后输入给冻结的VLA生成动作块 $a_{t:t+H}$。
+  - **模型规模**: LFP使用 Qwen3-VL-4B-Instruct 并通过 LoRA 微调；改进头是一个小型的回归网络；底层VLA（$\pi_{0.5}$）参数完全冻结。
+- **核心 Loss**: 
+  - **阶段1（旁白微调）**: 标准的语言建模交叉熵损失（Next-token prediction），用于让LFP学会描述机器人动作。
+  - **阶段2（拒绝微调 RFT）**: 仅保留搜索到能带来正提升（$\Delta > 0$）的语言序列，计算交叉熵损失，蒸馏出最优语言策略。
+  - **阶段2（改进头训练）**: 均方误差（MSE）回归损失，预测语言改进值 $\Delta$。
+  - 无视频重建等辅助任务，核心就是行为克隆/回归和共形预测的校准。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - **数据集**: 仿真使用 LIBERO-OOD（包含视觉场景、视角和语义扰动）；真机使用 DROID 数据集微调的 $\pi_{0.5}$，在 Franka 机械臂上测试。
+  - **Baseline**: 原始冻结VLA（Base VLA）、仅做旁白微调的LFP（$\pi_{SFT}$）、直接微调底层VLA、开环提示搜索（Open-loop prompt search）。
+- **评价指标**: 任务成功率（Success Rate），同时评估分布内（ID）和分布外（OOD，如视觉干扰、语义改变）的表现，以及采样复杂度。
+- **实验结果**: 
+  - 相比基础VLA，该方法在仿真中提升了 **24.7%**，在真机硬件中提升了 **65.0%**。
+  - 仅做旁白微调（$\pi_{SFT}$）虽然提升了ID性能，但在OOD下性能反而下降，证明了交互式搜索和共形预测的必要性。
+  - 共形预测有效防止了OOD场景下的“帮倒忙”（有害引导）。
+  - 相比开环提示搜索，闭环语言反馈能激发出VLA原本无法做出的错误恢复行为（recovery behaviors）。
+
+---
+
+
+### 5. 🔥 [DAM-VLA: Decoupled Asynchronous Multimodal Vision Language Action model] (DAM-VLA：解耦异步多模态视觉-语言-动作模型)
+- **研究机构**: `卡尔斯鲁厄理工学院 (KIT), NVIDIA, 德国机器人研究所 (RIG)`
+- **Arxiv ID**: `2606.12105` | [点击跳转](https://arxiv.org/abs/2606.12105)
+
+**0. 论文标题**
+- **英文标题**: DAM-VLA: Decoupled Asynchronous Multimodal Vision Language Action model
+- **中文标题**: DAM-VLA：解耦异步多模态视觉-语言-动作模型
+- **研究机构**: 卡尔斯鲁厄理工学院 (KIT), NVIDIA, 德国机器人研究所 (RIG)
+
+**1. 整体逻辑**
+- **研究任务**: 接触丰富的机器人操作任务（如插孔、按压、折叠等）。
+- **研究动机**: 现有的VLA模型继承了视觉-语言模型的“同步时钟”，所有传感器模态都在同一个固定频率下处理。但这与物理世界不匹配：力觉等高频信号变化极快（100-500Hz），视觉变化较慢（3-10Hz），语言指令在任务中不变。同步处理会导致三个问题：1）视觉等慢信号被过度重复计算，浪费算力；2）高频信号被欠采样，丢失接触瞬态细节；3）动作生成必须等待最慢的模态，增加延迟。
+- **本质改动**: 提出解耦的异步多模态架构。不再强制所有模态对齐到统一时钟，而是为每个模态维护独立的潜在缓冲区，让其按自身的传感器自然频率更新。动作头连续读取这些缓冲区，并通过门控交叉注意力（GCA）融合新模态，从而在保持100Hz控制频率的同时不破坏预训练权重。
+- **技术溯源**: 基于 X-VLA 作为视觉-语言-动作（VLA）的预训练骨干网络。
+
+**2. 技术拆解**
+- **重点改进**: 
+  1. **异步多模态缓冲区**：将各模态的更新频率与动作控制频率解耦，每个模态按自己的传感器频率刷新并保留特定时间长度的上下文。
+  2. **双路径门控交叉注意力（GCA）**：放弃将新模态（如力觉、视觉记忆）直接拼接到输入序列的做法，改用GCA将其作为残差注入到动作专家（Action expert）中，保护预训练的自注意力权重不被破坏。
+- **架构细节**: 
+  - **输入与更新频率**：控制频率为100Hz。语言指令仅编码一次；视觉（第三视角+腕部）每4个推理步（25Hz）更新一次，并通过GRU和交叉注意力压缩为短期视觉记忆；力/力矩和本体感觉每步（100Hz）更新，力觉经平滑和GRU编码后压缩。
+  - **GCA融合机制**：在动作专家的每4个Transformer层插入GCA。包含两条并行路径：
+    - *视觉记忆路径*：使用全局门控（Global gate，tanh激活，零初始化），因为视觉上下文在整个任务中持续有效。
+    - *力觉路径*：使用输入依赖门控（Input-dependent gate，sigmoid激活，基于力觉token均值），让网络自己学习何时力觉有效（如接触时）。力觉路径查询的是记忆更新前的动作token，确保两条路径正交，避免模态纠缠。
+- **核心 Loss**: 基于模仿学习的标准动作预测Loss（行为克隆）。训练时将动作标签对齐到100Hz时间线，视觉按步长采样以匹配稀疏更新，力觉连续采样。论文未引入额外的辅助重建Loss。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - **数据集**: 在Franka机械臂上收集的7个接触丰富的真实世界操作任务（如叠围巾、擦白板、按按钮、洗手液按压、插座插入、扫珠子、拼乐高）。
+  - **Baseline**: X-VLA25（标准25Hz同步基线），X-VLA100（朴素100Hz同步，视觉强行上采样），X-VLA_AFM（拥有异步、力觉和记忆，但采用简单的Token拼接融合），以及DAM-VLA的各个消融版本。
+- **评价指标**: 任务成功率（每个任务15次试验），平均Episode执行时间（秒），以及轨迹平滑度指标（SPARC等）。
+- **实验结果**: 
+  - **整体表现**：DAM-VLA 平均成功率达到 **95.2%**，而最强同步基线 X-VLA25 仅为 **40.95%**。
+  - **频率陷阱**：朴素提高频率到100Hz（X-VLA100）反而导致成功率暴跌至 21.9%，因为重复的视觉帧产生了矛盾的训练信号，导致动作犹豫和抖动。
+  - **接触任务优势**：在需要精确力控的任务（如乐高、插座、洗手液）上，同步基线成功率接近0%，而DAM-VLA达到 80%-100%。
+  - **消融分析**：单纯的异步解耦（DAM-VLA /F/M）能将成功率从21.9%拉回40.0%；加入GCA融合机制比直接拼接（X-VLA_AFM 54.3%）提升了40.9%，证明GCA有效保护了预训练特征；力觉和视觉记忆的结合解决了单一模态导致的“重复按压”或“接触超时”等失败模式。
+
+---
+
+
+### 6. 🔥 [VICX: Generalizable Robot Manipulation via Video Generation and In-Context Operator Network] (VICX：通过视频生成与上下文算子网络实现泛化机器人操作)
+- **研究机构**: `National University of Singapore (新加坡国立大学)`
+- **Arxiv ID**: `2606.12028` | [点击跳转](https://arxiv.org/abs/2606.12028)
+
+**0. 论文标题**
+- **英文标题**: VICX: Generalizable Robot Manipulation via Video Generation and In-Context Operator Network
+- **中文标题**: VICX：通过视频生成与上下文算子网络实现泛化机器人操作
+- **研究机构**: National University of Singapore (新加坡国立大学)
+
+**1. 整体逻辑**
+- **研究任务**: 将视频生成模型输出的高层“视觉计划”（像素级视频）转化为机器人底层可执行的“状态轨迹”。
+- **研究动机**: 当前用视频模型做机器人规划很火，但生成的视频只是画面，不能直接控制机械臂。如果直接训练一个网络做“像素到状态”的全局回归，一旦遇到背景、光照、机器人外观或视角变化，映射就会失效。需要一种能泛化到未见任务和不同机器人形态的视觉到执行的转换方法。
+- **本质改动**: 提出VICX框架，将任务解耦。不学死的全局像素-状态映射，而是提出V2T-ICON网络，在推理时通过检索训练集里相似的“机械臂图片-真实状态”对作为上下文参考，动态校准当前的视觉到状态映射。同时，用分割模型把机械臂单独抠出来，屏蔽背景干扰，实现任务无关。
+- **技术溯源**: 基于冻结的视频生成模型（实验使用了Wan模型）；借鉴了ICON（In-Context Operator Network）的上下文算子思想；使用了SAM3进行机械臂实例分割；使用DINOv2提取特征并结合FAISS进行近邻检索。
+
+**2. 技术拆解**
+- **重点改进**: 
+  1. 提出VICX闭环框架：冻结的视频模型负责高层视觉规划，V2T-ICON负责底层状态执行，两者结合形成闭环，支持误差纠正。
+  2. 提出V2T-ICON（视频到轨迹上下文算子网络）：用检索代替全局回归，通过上下文提示（in-context prompts）实现零样本的视觉-状态映射。
+  3. 数据解耦：输入网络前，用SAM3把图像里的机械臂抠出来（arm-only），强迫网络只学习机械臂的几何和姿态，忽略具体任务物体（如抽屉、水龙头）。
+- **架构细节**: 
+  - **输入**: 视频模型生成的机械臂视频帧（Query），以及从训练集中检索出的Top-N（实验中N=5）相似机械臂图像及其对应的真实关节/末端状态（Reference）。
+  - **模型结构**: 包含两个核心注意力模块。先做**Reference Attention**（逐帧上下文匹配，将查询帧与参考帧在特征空间对齐）；再做**Temporal Attention**（跨帧时序聚合，消除单帧噪声，保证轨迹平滑）。这两个模块会进行**迭代精炼**（Iterative Refinement），逐步输出平滑的机械臂状态序列。
+  - **底层控制**: 输出的状态序列直接交给PID控制器进行跟踪执行。
+- **核心 Loss**: 
+  - 主Loss：状态预测Loss（$\mathcal{L}_{state}$），监督预测状态与真实状态的误差。
+  - 辅助Loss：平滑Loss（$\mathcal{L}_{smooth}$），惩罚不合理的轨迹抖动；速度Loss（$\mathcal{L}_{vel}$），约束预测的运动趋势与真实速度一致。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - **数据集**: Meta-World仿真环境。V2T-ICON仅在3个源任务（drawer-open, reach, basketball）的数据上进行训练。
+  - **Baseline**: $\pi_{0.5}$-Scratch（零样本）、$\pi_{0.5}$-Finetune（在MT50全量微调）、AVDC（在11个Meta-World任务上训练的视频-动作模型）。
+- **评价指标**: 闭环仿真任务成功率（Success Rate），以及规划次数（Planning count，越少说明效率越高）。
+- **实验结果**: 
+  - **跨任务泛化**: 在9个测试任务上，VICX平均成功率达到 **72.2%**，远超 $\pi_{0.5}$-Finetune (26.1%) 和 AVDC (55.0%)。考虑到VICX的执行模块只用了3个任务的数据训练，而baseline用了更多数据，其泛化优势明显。
+  - **跨具身泛化**: 在测试时换成外观和形态完全不同的橙色工业机械臂（且改变了桌面和光照），VICX无需重训，平均成功率仍保持在 **57.2%**（标准场景为72.2%）。
+  - **上下文有效性**: 消融实验表明，加入5个检索参考图后，标准场景成功率从 62.8% 提升至 72.2%，跨具身场景从 45.0% 提升至 57.2%，同时减少了规划次数，证明检索上下文对状态校准至关重要。
+  - **闭环自纠正**: 具备错误恢复能力。当初始规划失败（如没抓稳）时，系统能将失败画面作为反馈输入视频模型，重新规划出新的抓取策略（如改抓抽屉边缘）完成任务。
+
+---
+
+
+### 7. 🔥 [Embodied-R1.5: Evolving Physical Intelligence via Embodied Foundation Models] (Embodied-R1.5：通过具身基础模型进化物理智能)
+- **研究机构**: `天津大学 (Tianjin University), 腾讯混元 (Tencent Hunyuan)`
+- **Arxiv ID**: `2606.11324` | [点击跳转](https://arxiv.org/abs/2606.11324)
+
+**0. 论文标题**
+- **英文标题**: Embodied-R1.5: Evolving Physical Intelligence via Embodied Foundation Models
+- **中文标题**: Embodied-R1.5：通过具身基础模型进化物理智能
+- **研究机构**: 天津大学 (Tianjin University), 腾讯混元 (Tencent Hunyuan)
+
+**1. 整体逻辑**
+- **研究任务**: 构建一个统一的具身基础模型（EFM），融合空间认知、任务规划与纠错、目标指向与定位三大能力，并能以极少量数据微调为直接输出连续动作的VLA（视觉-语言-动作）模型。
+- **研究动机**: 现有具身模型能力割裂（通常只侧重认知、规划或定位中的一项）；多任务联合训练时，不同任务输出格式差异导致严重的梯度冲突（多任务冲突）；现有模型大多停留在问答层面，缺乏在真实长程任务中的闭环自主执行和纠错验证。
+- **本质改动**: 1) 将认知、规划、指向三大能力统一到一个8B参数的VLM中，用纯文本token统一表示坐标和轨迹；2) 设计多任务平衡的强化学习（RL）训练策略解决异构任务冲突；3) 提出PGC（规划-定位-纠错）闭环框架实现长程任务自主执行；4) 在VLM后挂载轻量级动作专家，用少量数据微调成VLA。
+- **技术溯源**: 视觉语言基座采用 Qwen3-VL-8B-Instruct；动作生成专家采用基于 DiT (Diffusion Transformer) 的 Flow-matching 架构。
+
+**2. 技术拆解**
+- **重点改进**: 
+  1. **统一架构与符号化表示**：所有输出（文本推理、点坐标、轨迹序列）统一为纯文本token序列。坐标归一化到[0,1000]，不使用特殊token，让坐标成为模型多步推理中可反复引用的符号。
+  2. **多任务平衡RL策略 (Multi-Task Balanced RL)**：针对GRPO在多任务下的失效问题，提出三点改进：难度感知数据过滤（只保留中等难度样本以最大化学习信号）；动态过滤（自动屏蔽全对或全错的无梯度样本组）；全局Batch奖励归一化（用整个混合batch的标准差代替组内标准差，统一不同任务的梯度量级）。
+  3. **PGC闭环框架**：单个模型同时扮演Planner（任务规划）、Grounder（定位与执行）、Corrector（错误检测与纠正），实现长程任务无人工干预的闭环。
+- **架构细节**: 
+  - **输入输出**：输入为多视角图像和文本指令，输出为纯文本token。
+  - **模型规模**：8B参数。视觉编码器不冻结，与LLM主干联合训练以适应具身场景的视觉分布。
+  - **VLA扩展**：在VLM中间层提取视觉-语言特征，输入给一个轻量级的基于DiT的Flow-matching动作专家（Action Expert），通过action chunking机制输出连续动作序列。
+- **核心 Loss**: 
+  - **SFT阶段**：标准的因果语言建模损失（Causal Language Modeling Loss），所有异构任务统一优化。
+  - **RFT阶段**：基于GRPO的强化学习Loss，结合多任务奖励设计（包括精确匹配、IoU、点距离衰减、轨迹RMSE、语义相似度等连续与离散奖励）。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - **数据集**：自建包含34个数据集、超15B tokens的具身数据系统（涵盖空间推理、规划纠错、指向轨迹等）；测试集包含24个Embodied VLM benchmarks和4个机器人操作benchmark suites（如SimplerEnv, PartNet-Mobility等）。
+  - **Baseline**：通用大模型（GPT-5.4），具身大模型（Gemini-Robotics-ER-1.5），主流VLA模型（π0.5, ManipLLM等）。
+- **评价指标**: VLM基准使用准确率（Accuracy）等标准指标；机器人操作任务使用成功率（Success Rate）。
+- **实验结果**: 
+  - **VLM认知与推理**：在24个具身VLM基准中的16个取得SOTA，21个主基准平均分达70.4%，比Gemini-Robotics-ER-1.5高17.0%，比GPT-5.4高21.7%。
+  - **VLA操作能力**：仅用少量动作数据微调成VLA后，在SimplerEnv Google Robot视觉匹配任务上达到92.4%成功率（比π0.5高20%以上），在PartNet-Mobility上比ManipLLM高11%，证明内部化的具身推理能力可大幅减少对动作数据的依赖。
+  - **真机闭环实验**：在零样本真机实验中，成功完成指令跟随、功能部位定位、关节物体操作和长程复杂任务（如做奶茶、扫垃圾、叠杯子），验证了PGC框架在真实物理世界中的长程闭环纠错能力。
+
+---
+
+
+### 8. 🔥 [Making Foresight Actionable: Repurposing Representation Alignment in World Action Models] (让预见变得可执行：在世界动作模型中复用表征对齐)
+- **研究机构**: `香港大学 (HKU), 小鹏机器人 (XPENG Robotics)`
+- **Arxiv ID**: `2606.12217` | [点击跳转](https://arxiv.org/abs/2606.12217)
+
+**0. 论文标题**
+- **英文标题**: Making Foresight Actionable: Repurposing Representation Alignment in World Action Models
+- **中文标题**: 让预见变得可执行：在世界动作模型中复用表征对齐
+- **研究机构**: 香港大学 (HKU), 小鹏机器人 (XPENG Robotics)
+
+**1. 整体逻辑**
+- **研究任务**: 基于视觉和语言指令的机器人连续动作生成（如抓取放置、开蒸笼转移包子等真实世界操作任务）。
+- **研究动机**: 现有的世界动作模型（WAM）用视频生成模型预测未来，再据此生成动作。但作者发现“视频预测得准”不等于“动作生成得对”。因为视频模型为了像素重建，特征里包含大量纹理、背景等外观细节；而动作生成只需要关注手物接触点等稀疏的空间和功能信息。这导致动作解码器注意力跑偏，盯着无关背景，对背景扰动极其敏感。
+- **本质改动**: 在视频特征传给动作解码器之前，加一个表征对齐损失。把视频扩散模型的中间层特征，对齐到冻结的视觉基础模型（DINOv2）提取的语义特征上，让特征空间更关注物体和空间结构，减少外观细节的干扰。
+- **技术溯源**: 视频基座用 Cosmos-Predict-2.5 (DiT架构)，视觉编码器用 DINOv2，动作头是 Action DiT。
+
+**2. 技术拆解**
+- **重点改进**: 提出 AGRA (Action-Grounded Representation Alignment)。不改变原有的视频生成和动作生成流程，只在训练时加一个辅助Loss，约束视频模型传给动作头的中间层特征，使其在空间分布上与 DINOv2 的特征保持一致。
+- **架构细节**: 
+  - 基线是双DiT架构：Video DiT (28层, 2B参数) 负责预测未来，Action DiT (8层, 500M参数) 负责生成动作。
+  - 推理时，Video DiT 只评估一次（固定高噪声水平）提取特征，通过多层桥接注入到 Action DiT 的交叉注意力中。
+  - AGRA 具体做法：提取 DINOv2 的 patch 级特征作为目标。选择 Video DiT 的特定层（实验证明第8层，约1/3深度最好），将其隐状态通过投影层映射到 DINOv2 的维度，然后逐 patch 计算对齐。
+- **核心 Loss**: 总 Loss = WAM主Loss (视频流匹配 + 动作流匹配) + λ * AGRA Loss。AGRA Loss 就是投影后的 Video DiT 隐状态与 DINOv2 特征之间的负余弦相似度。
+
+**3. 实验结果**
+- **数据集和baseline**: 在真实世界用 IRON-R01-1.11 人形机器人做 Pick-and-Place 和 Open-Steamer-Transfer-Bun 任务。Baseline 包括冻结视频主干只训动作头、无对齐的 WAM、以及不同对齐层数/不同视觉编码器(SigLIP)的变体。
+- **评价指标**: 
+  - 任务成功率：包括同分布 (ID) 和三种异分布 (OOD：语义、实例、属性泛化)。
+  - 注意力指标：动作头注意力落在手物交互区域的比例 (Attention in Mask Ratio) 和中心点误差 (Centroid Error)。
+  - 因果干预指标：交互区域和背景区域对动作扰动的敏感度比值 (Matched Sensitivity Ratio)。
+- **实验结果**: 
+  - 成功率大幅提升：同分布 (ID) 场景下，AGRA 成功率 80%，Baseline 只有 34%。在三种异分布 (OOD) 场景下，AGRA 比 Baseline 分别提升 27%、32%、32%。
+  - 注意力更聚焦：AGRA 让动作头的注意力更集中在手物接触点，对无关背景的敏感度显著降低，这解释了其 OOD 泛化能力强的原因。
+  - 消融实验结论：对齐层选在 1/3 深度（第8层）效果最好，对齐太深会破坏视频模型的动态细节；DINOv2 比 SigLIP 更适合作为对齐目标，因为 DINOv2 的特征更关注物体和空间结构。
+
+---
+
+
+### 9. 🔥 [Dynamic Execution Horizon Prediction for Chunk-based Robot Policies] (基于分块机器人策略的动态执行步数预测)
+- **研究机构**: `多伦多大学 (University of Toronto), Vector Institute, NVIDIA`
+- **Arxiv ID**: `2606.11408` | [点击跳转](https://arxiv.org/abs/2606.11408)
+
+**0. 论文标题**
+- **英文标题**: Dynamic Execution Horizon Prediction for Chunk-based Robot Policies
+- **中文标题**: 基于分块机器人策略的动态执行步数预测
+- **研究机构**: 多伦多大学 (University of Toronto), Vector Institute, NVIDIA
+
+**1. 整体逻辑**
+- **研究任务**: 机器人操作中的动作分块（Action Chunking）执行策略。
+- **研究动机**: 现有的分块策略（如 Diffusion Policy）预测出一段动作后，通常固定执行其中 $N$ 步再重新规划。这存在一个矛盾：执行步数多则动作平滑但反应迟钝（开环误差容易累积），执行步数少则反应快但动作容易抖。实际上，机器人在“自由空间移动”和“精细接触/插入”时，对重规划频率的需求完全不同，固定执行步数无法适应这种变化。
+- **本质改动**: 在冻结的预训练分块策略上，增加一个轻量级的“执行步数预测头”。根据当前观测和预测出的整段动作，动态决定这次实际执行几步就重新规划。
+- **技术溯源**: 基于 Diffusion Policy 等预训练分块策略，结合 PPO（近端策略优化）算法进行在线强化学习。
+
+**2. 技术拆解**
+- **重点改进**: 将“决定执行几步”建模为一个半马尔可夫决策过程（Semi-MDP）。基础动作生成策略完全冻结不动，只用在线 RL 训练这个预测步数的分类头。这样既不用重新训练庞大的基础模型，又能直接兼容各种黑盒分块策略。
+- **架构细节**: 
+  - **输入**: 当前状态观测 + 基础策略预测的完整动作块（长度为 $H$）。
+  - **输出**: 一个分类分布，决定实际执行的动作步数 $h \in \{1, \dots, H\}$，只执行前 $h$ 步，剩下的丢弃。
+  - **Critic设计**: 因为基础策略冻结，只需要一个仅依赖状态的价值网络（State-only critic）。为了估值更准，价值网络采用了分布式强化学习（Distributional RL）中的 categorical 分布来输出。
+- **核心 Loss**: 采用 Chunk-level PPO。
+  - **主 Loss**: 标准的 PPO 截断代理损失，但计算粒度是“块（chunk）”级别。
+  - **优势计算**: 使用基于实际环境物理步数折扣（而不是块决策次数折扣）的 GAE 估计器，在块边界计算 TD 误差。
+  - **Critic Loss**: 用 two-hot 投影最小化交叉熵来训练分布式的价值网络。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - **环境**: IsaacLab（多阶段孔轴插入、双手针管注射器插入），FurnitureBench（单腿桌子、圆桌组装）。
+  - **Baseline**: 使用相同冻结基础策略（Diffusion Policy），但采用人工调优的各种固定执行步数（如2步、6步、24步等）。
+- **评价指标**: 任务整体成功率（Success Rate），并在不同动作噪声水平和不同训练数据规模下测试鲁棒性。
+- **实验结果**: 
+  - **多阶段插入任务**: 平均成功率比最好的固定步数 baseline 提升 23.03%。在精度要求最高（间隙2mm）和噪声最大的阶段提升最明显。
+  - **家具组装任务**: 单腿桌子成功率从 70.30% 提升到 95.18%；圆桌组装从 29.90% 提升到 93.80%（低随机化设定下）。
+  - **双手针管插入（极高精度）**: 成功率从 10.20% 提升到 29.00%。
+  - **行为分析**: 模型学到了符合直觉的规律。在自由空间移动时，预测较长的执行步数（保证平滑高效）；在精细对齐和插入时，预测极短的步数（甚至接近1步，保证高频重规划纠偏）。
+
+---
+</script>
+            <script>
+                const rawMdElement = document.getElementById('raw-markdown');
+                if (rawMdElement) {
+                    document.getElementById('content').innerHTML = marked.parse(rawMdElement.textContent);
+                    // 渲染后触发公式排版
+                    if (window.MathJax && window.MathJax.typesetPromise) {
+                        window.MathJax.typesetPromise();
+                    }
+                }
+                function copySources() { /* 原代码保持不变 */ }
+            </script>
+        </body>
+        </html>
+        
