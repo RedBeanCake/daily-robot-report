@@ -1,0 +1,392 @@
+
+        <!DOCTYPE html>
+        <html lang="zh-CN">
+        <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>🤖 具身大模型简报 - Fri, 12 Jun 2026 (VLA: 9 of 56 entries)</title>
+            <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.2.0/github-markdown.min.css">
+            <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+            <script>
+                window.MathJax = {
+                    tex: { inlineMath: [['$', '$'], ['\\(', '\\)']], displayMath: [['$$', '$$'], ['\\[', '\\]']] },
+                    options: { skipHtmlTags: ['script', 'style', 'textarea'] }
+                };
+            </script>
+            <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+            <style>
+                .markdown-body { box-sizing: border-box; min-width: 200px; max-width: 980px; margin: 0 auto; padding: 45px; }
+                @media (max-width: 767px) { .markdown-body { padding: 15px; } }
+            </style>
+        </head>
+        <body class="markdown-body">
+            <a href='../index.html' style='margin-bottom:20px; display:block;'>← 返回主索引</a>
+            <h1>🤖 具身大模型简报 - Fri, 12 Jun 2026 (VLA: 9 of 56 entries)</h1>
+            <div id="content"></div>
+            
+            <script type="text/markdown" id="raw-markdown">### 1. 🔥 [WEAVER, Better, Faster, Longer: An Effective World Model for Robotic Manipulation] (WEAVER：一种用于机器人操作的有效世界模型)
+- **研究机构**: `Mila / 蒙特利尔大学, 卡内基梅隆大学 (CMU), 麦吉尔大学`
+- **Arxiv ID**: `2606.13672` | [点击跳转](https://arxiv.org/abs/2606.13672)
+
+**0. 论文标题**
+- **英文标题**: WEAVER, Better, Faster, Longer: An Effective World Model for Robotic Manipulation
+- **中文标题**: WEAVER：一种用于机器人操作的有效世界模型
+- **研究机构**: Mila / 蒙特利尔大学, 卡内基梅隆大学 (CMU), 麦吉尔大学
+
+**1. 整体逻辑**
+- **研究任务**: 机器人视觉操作任务的世界模型（World Model），用于预测未来的多视角图像、本体感觉状态以及任务奖励。
+- **研究动机**: 现有的机器人世界模型无法同时满足三个核心需求：高保真（预测准）、长时序一致（长 horizon 预测不崩）和高效（推理快，能用于实时规划）。例如，视频生成模型保真度高但推理太慢；JEPA 类模型难以解码成图像去评估任意策略；Ctrl-World 等模型推理速度跟不上 test-time planning 的需求。
+- **本质改动**: 在 Latent（隐变量）空间构建世界模型。通过融合 Flow Matching 和 Diffusion Forcing 加速推理并保证长时序一致性；引入稀疏记忆和短期历史机制处理多视角遮挡；在 Latent 空间直接训练 Reward 和 Critic 头，免去解码成图像再用外部 VLM 评估的开销。
+- **技术溯源**: 基于 Stable Diffusion 3 (SD3) 的 VAE 作为预训练 Encoder/Decoder；借鉴了 Ctrl-World（多视角与记忆机制）、Dreamer-v4（Latent 奖励/价值预测）、以及视频生成社区的 Flow Matching 和 Diffusion Forcing。基座策略使用的是 $\pi_{0.5}$ (VLA)。
+
+**2. 技术拆解**
+- **重点改进**: 
+  1. 使用预训练的 SD3 VAE 提取特征，替代从头训练 Encoder，提高对分布外（OOD）数据的鲁棒性。
+  2. 动力学模型采用 Flow Matching 结合 Diffusion Forcing（在不同时间步独立采样噪声），在减少推理步数的同时维持长时序生成的稳定性。
+  3. 引入“稀疏长期记忆（每隔 k 帧）+ 短期历史（最近 2 帧）”的上下文机制，解决机械臂操作中的遮挡和视角变化问题。
+  4. 将 Reward 和 Critic 网络直接作用在 Latent 空间，实现无需图像解码的快速价值评估。
+- **架构细节**: 
+  - **输入**: 多视角图像（外部相机 + 腕部相机）和机器人本体感觉（关节角）。
+  - **结构**: 模型总参数量 928M。Encoder 将图像转为 patch tokens，本体感觉投影后拼接。核心的 Latent Dynamics Model 是一个 2D Transformer，包含空间注意力和因果时序注意力。
+  - **输出**: 未来 $h$ 步的 Latent 序列。通过预训练 Decoder 解码回图像和本体感觉，同时通过轻量级的 MLP 头输出 Latent Reward 和 Value。
+- **核心 Loss**: 
+  - **主 Loss**: Flow Matching Loss（预测 Latent 的速度场，即计算预测速度与真实速度的 MSE）。
+  - **辅助 Loss**: Reward Head 的 MSE Loss（蒸馏自 Robometer 等进度奖励模型），Critic Head 的 MSE Loss（预测 bootstrapped $\lambda$-returns 以支持截断 horizon 的评估）。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - **数据集**: 预训练使用 DROID 数据集；微调和评估使用真实环境收集的 5 个操作任务数据（包括刚性物体抓取放置、柔性物体操作如叠毛巾/倒豆子等）。
+  - **Baseline**: 主要对比 Ctrl-World（1.5B 参数的多视角扩散世界模型）。基座策略统一使用 $\pi_{0.5}$。
+- **评价指标**: 
+  - **世界模型本身**: FID（图像保真度），FVD（视频时序质量），推理时间（Time per generation）。
+  - **下游任务**: 策略评估与真实成功率的相关性（$\rho$），策略提升的真实成功率（Success Rate），Test-time planning 的成功率和加速比。
+- **实验结果**: 
+  - **世界模型指标**: 在相同推理步数（NFE=16）下，WEAVER 的推理时间仅需 4.78s，比 Ctrl-World（14.65s）快约 3 倍，且 FID 和 FVD 指标显著更优（例如外部视角 FID 从 26.09 降至 10.20）。在长时序（150步/10s）预测下，WEAVER 的 FID 始终保持更低，没有随时间推移而崩溃。
+  - **策略评估**: 在虚拟环境中的评估结果与真实世界成功率的相关性达到 $\rho=0.870$。
+  - **策略提升**: 无需任何真实环境交互，通过世界模型生成数据筛选优势动作，使基座模型 $\pi_{0.5}$ 的真实成功率相对提升了 38%。
+  - **Test-time planning**: 得益于 Latent 空间的快速评估和推理加速，WEAVER 在 test-time planning 中的推理速度比 prior WMs 快 5-10 倍，使真实成功率进一步提升 14%。
+
+---
+
+
+### 2. 🔥 [EA-WM: Event-Aware World Models with Task-Specification Grounding for Long-Horizon Manipulation] (EA-WM：面向长视野操作的任务规范接地事件感知世界模型)
+- **研究机构**: `碧桂园服务集团AI Lab (Country Garden Services Group AI Lab)、复旦大学、Omni AI`
+- **Arxiv ID**: `2606.13053` | [点击跳转](https://arxiv.org/abs/2606.13053)
+
+**0. 论文标题**
+- **英文标题**: EA-WM: Event-Aware World Models with Task-Specification Grounding for Long-Horizon Manipulation
+- **中文标题**: EA-WM：面向长视野操作的任务规范接地事件感知世界模型
+- **研究机构**: 碧桂园服务集团AI Lab (Country Garden Services Group AI Lab)、复旦大学、Omni AI
+
+**1. 整体逻辑**
+- **研究任务**: 长视野机器人操作（Long-Horizon Manipulation）中的规划与控制。
+- **研究动机**: 现有的视觉或特征世界模型只能预测未来的图像或特征，但不知道想象出的未来到底有没有完成具体的任务事件（比如抽屉开没开、物体放对地方没、有没有发生物理碰撞）。纯靠视觉特征做规划，容易忽略任务规则、动作历史和物理约束，导致长视野任务规划失败。
+- **本质改动**: 在冻结的视觉特征世界模型外面，加了一层“事件预测与验证”模块。把“预测未来长什么样”和“判断未来有没有完成任务”解耦。用仿真器自动生成的事件标签来训练验证器，在规划时不仅看视觉特征距离，还要看事件验证得分，从而选出更靠谱的动作。
+- **技术溯源**: 基于冻结的视觉特征编码器（如DINOv2）和动作条件的特征世界模型（DINO-WM风格），规划部分结合了交叉熵方法（CEM）和近端策略优化（PPO）。
+
+**2. 技术拆解**
+- **重点改进**: 
+  1. 自动事件标签生成：不用人工标数据，直接利用仿真器状态和任务定义（如BDDL规则）自动算出物体状态、空间关系、任务成功等事件标签。
+  2. 事件预测与验证器：训练一个轻量级网络，把世界模型想象出的未来特征解码成具体的事件状态。然后算一个综合得分，包括任务进度、语义逻辑一致性、物理可行性，并惩罚高不确定性的预测。
+  3. 验证器引导的规划与PPO提案：在CEM规划中，用验证器得分来筛选候选动作。对于接触敏感的放置任务（如放红酒），额外用PPO在演示动作附近采样残差动作，再用验证器挑出最好的。
+- **架构细节**: 
+  - 输入：历史图像观测、机器人本体感觉、任务规范（任务ID/BDDL规则）、候选动作序列。
+  - 结构：冻结视觉编码器提特征 -> 特征世界模型预测未来特征 -> 事件预测器输出二值事件、连续距离、关节进度、成功概率和不确定性 -> 验证器计算综合得分 $S_{EA}$。
+  - 规模：论文强调是轻量级管线（lightweight pipeline），基座特征模型冻结，事件预测器和验证器是额外的小网络，未提及庞大的参数量。
+- **核心 Loss**: 
+  - 事件预测Loss：二值交叉熵（针对开关/接触等二值事件）、L1/平方回归（针对距离/裕度）、二值分类（针对任务成功）。
+  - 验证器排序Loss：成对排序损失（Pairwise ranking loss），强制让成功轨迹的得分高于随机或失败轨迹。
+  - 规划目标函数（推理时用）：$J = w_f C_{feature} - S_{EA}$，即最小化视觉特征成本，同时最大化事件验证得分。
+  - PPO Loss：标准的PPO裁剪代理目标，用于训练接触敏感任务的动作提案网络。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - 数据集：PointMaze（2D导航）、Deformable（可变形物体操作）、Wall-Single（墙壁约束控制）、LIBERO-goal（语言描述的机械臂操作，包含Goal10和接触敏感的wine-rack任务）。
+  - Baseline：DINO-WM（无事件验证的纯特征世界模型）、演示回放（Demonstration replay）、演示初始化的CEM等。
+- **评价指标**: 
+  - PointMaze：成功率、平均状态距离。
+  - Deformable：任务成功率、Chamfer距离等几何指标。
+  - Wall-Single：成功率。
+  - LIBERO-goal：AUC（针对Goal10）、在线混合成功率（针对wine-rack，动作 horizon H=20）。
+- **实验结果**: 
+  - PointMaze：在随机目标状态下，EA-WM把成功率从DINO-WM的0.90提升到了0.94，同时没掉在训练集目标上的表现（保持1.00）。
+  - Deformable：用检索初始化动作先验的EA-CEM，在Deformable e10 blocks上达到了94%的成功率。
+  - Wall-Single：用档案验证的EA-CEM，在Wall-Single上达到了95%的成功率。
+  - LIBERO-goal：在Goal10任务上，验证器对齐的AUC达到了0.9939；在最难的接触敏感wine-rack（放红酒）任务中，结合PPO提案的在线成功率达到了97%（97/100）。
+
+---
+
+
+### 3. 🔥 [RoboProcessBench: Benchmarking Process-Aware Understanding in Vision-Language Robotic Manipulation] (RoboProcessBench：视觉语言机器人操作中的过程感知理解基准测试)
+- **研究机构**: `Shanghai AI Laboratory (上海人工智能实验室), Shanghai Jiao Tong University (上海交通大学) 等`
+- **Arxiv ID**: `2606.13040` | [点击跳转](https://arxiv.org/abs/2606.13040)
+
+**0. 论文标题**
+- **英文标题**: RoboProcessBench: Benchmarking Process-Aware Understanding in Vision-Language Robotic Manipulation
+- **中文标题**: RoboProcessBench：视觉语言机器人操作中的过程感知理解基准测试
+- **研究机构**: Shanghai AI Laboratory (上海人工智能实验室), Shanghai Jiao Tong University (上海交通大学) 等
+
+**1. 整体逻辑**
+- **研究任务**: 评估视觉语言模型（VLM）在机器人操作任务中对“中间执行过程”的细粒度理解能力（如接触状态、运动方向、局部进度、时序关系等），而不仅仅是判断最终任务是否成功。
+- **研究动机**: VLM在机器人系统中越来越多地被用作奖励生成器、进度监控或失败检测器。这要求模型必须理解操作在物理和时间上的演变过程。但现有的评估基准只关注最终结果或高层规划，缺乏对VLM“过程理解”能力的系统评估。
+- **本质改动**: 提出了 RoboProcessBench 基准和 ProcessData 数据集。将长序列操作分解为局部过程单元，设计了12类诊断问题（分为静态监控和动态推理），构建了约5.8万个基于物理执行轨迹的QA对，专门用于评估和微调VLM的过程理解能力。
+- **技术溯源**: 基于 Qwen2.5-VL-7B 和 InternVL-3-8B 等开源VLM基座进行监督微调（SFT），并评测了 GPT、Gemini、Claude 等闭源模型。
+
+**2. 技术拆解**
+- **重点改进**: 将机器人操作过程解耦为12个具体、可评估的信号维度。设计了“局部过程单元（LPU）”的概念，把长轨迹切分成具有明确物理意义的短片段（如接触开始、动作原语执行期），在此基础上构建问答对，避免模型只靠全局上下文猜答案。
+- **架构细节**: 
+  - **输入**: 根据任务不同，输入单帧图像、短顺序视频片段、打乱顺序的帧或双帧对比。
+  - **输出**: 2到6个选项的多选题答案。
+  - **任务设计**: 分为静态监控（阶段识别、接触检测、双臂协调、当前原语识别）和动态推理（运动方向、局部进度、运动状态、操作结果、时序排序、时序优先级、下一原语预测、原语链恢复）。
+  - **数据来源**: 整合了 GM-100, RH20T, REASSEMBLE, AIST-Bimanual 四个数据集，提取物理接地的执行轨迹来生成Ground Truth。
+- **核心 Loss**: 采用标准的分类 Cross-Entropy Loss。核心就是让模型通过SFT准确预测这12类过程状态的多选题标签，没有设计复杂的辅助重建任务。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - **数据集**: ProcessData-Eval（约5.8万QA对中划分出的15%测试集，严格隔离episode防止数据泄露）。
+  - **Baseline**: 开源模型（QwenVL系列, InternVL系列, RoboBrain, GLM），闭源模型（Gemini, GPT系列, Claude系列）。
+- **评价指标**: 12个任务族的多选题准确率（Accuracy）。
+- **实验结果**: 
+  - 现有VLM（包括闭源大模型）在过程理解上存在明显短板，能力极不均衡。
+  - 静态状态（如接触检测、运动状态）相对较好，但“局部进度估计（T5）”极差，最高仅34.4%（接近33.3%的随机基线），说明模型很难判断当前动作执行到了什么程度。
+  - “时序推理（T8时序排序, T9时序优先级）”最难，基本在盲猜（T8最高22.3%，T9接近50%随机），说明短视觉上下文不足以让现有VLM建立可靠的时序推理。
+  - 使用 ProcessData-SFT 对 Qwen2.5-VL-7B 和 InternVL-3-8B 进行 LoRA 微调后，模型在局部状态、运动、进度和原语感知等任务上取得了一致提升，但时序相关问题的瓶颈依然存在。
+
+---
+
+
+### 4. 🔥 [SERF: Spatiotemporal Environment and Robot Feature Map for Long-Horizon Mobile Manipulation] (SERF：用于长时程移动操作的时空环境与机器人特征图)
+- **研究机构**: `UC San Diego (加州大学圣地亚哥分校) 等`
+- **Arxiv ID**: `2606.12956` | [点击跳转](https://arxiv.org/abs/2606.12956)
+
+**0. 论文标题**
+- **英文标题**: SERF: Spatiotemporal Environment and Robot Feature Map for Long-Horizon Mobile Manipulation
+- **中文标题**: SERF：用于长时程移动操作的时空环境与机器人特征图
+- **研究机构**: UC San Diego (加州大学圣地亚哥分校) 等
+
+**1. 整体逻辑**
+- **研究任务**: 长时程移动操作任务（如家庭环境中的多目标重排、收拾玩具、组装物品等）。
+- **研究动机**: 现有的VLA（视觉-语言-动作）模型主要依赖当前图像观测，缺乏维持长期上下文（如自身位置、环境变化、任务进度）的显式机制。现有的3D特征图方法通常只表示静态环境，不支持随机器人交互进行动态更新，且忽略了机器人本体在记忆中的表示，导致机器人只能间接推断自身与环境的相对空间关系。
+- **本质改动**: 构建了一个包含“环境”和“机器人本体”的共享时空特征图（SERF）。环境点随物体移动而动态更新，机器人点随关节运动更新。将这个动态特征图提取为多尺度的token，直接作为状态输入喂给VLA模型，为策略提供持久的、有空间锚点的局部和全局上下文。
+- **技术溯源**: 基于 $\pi_{0.5}$ (VLA模型基座), DINOv3 (视觉基础模型提取特征), Point Transformer (点云特征编码)。
+
+**2. 技术拆解**
+- **重点改进**: 
+  1. **时空特征图构建与更新**：用带可学习特征的3D神经点（neural points）表示场景。环境点通过3D关键点跟踪和SE(3)变换随物体刚性运动而更新；机器人点通过正运动学随关节状态实时更新。两者共享一个解码器，映射到同一潜在特征空间。
+  2. **多尺度Map Tokenizer**：从特征图中提取8个token输入给VLA，包括：3个不同半径（1m/2m/4m）的机器人基座局部token，2个末端执行器局部token（半径0.5m），1个纯机器人构型token，1个纯环境状态token，以及1个全局场景token。
+- **架构细节**: 
+  - **输入**: RGB-D图像、本体感受状态（关节角、基座位姿）、自然语言指令。
+  - **特征处理**: 用DINOv3提取图像patch特征，结合深度反投影到3D空间。过滤掉无关背景点后，用Point Transformer编码点云并生成上述8个map tokens。
+  - **模型结构**: 基于 $\pi_{0.5}$ 架构，冻结VLM骨干和视觉编码器，在动作专家（action expert）中插入LoRA进行微调。将图像特征、8个map tokens、状态token和任务embedding拼接后输入模型。
+  - **输出**: 动作序列（action chunk）。
+- **核心 Loss**: 
+  - **特征图训练Loss**: 余弦相似度重建Loss（让神经点解码出的特征逼近DINOv3特征） + 对比Loss（类间特征推开、类内特征拉近，同类部件特征拉近，赋予特征语义结构）。
+  - **策略训练Loss**: 条件流匹配（Conditional Flow-Matching）Loss，通过预测动作速度场来拟合专家动作。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - **数据集**: BEHAVIOR-1K（家庭环境双臂移动操作基准，评估了收拾玩具、放鞋子、组装礼物篮3个长时程任务）。
+  - **Baseline**: PI0.5 (pre) (预训练模型直接推理), PI0.5 (ft) (针对单任务微调的纯图像VLA), SBP (加入静态3D特征图的VLA), SERF (env) (只加环境点不加机器人点的消融版本)。
+- **评价指标**: 任务进度（Task progress，%），即完成的子目标比例。同时定性评估轨迹直接程度、场景配置泛化能力和失败恢复能力。
+- **实验结果**: 
+  - **整体性能**: SERF在3个任务上的平均任务进度从纯图像微调baseline (PI0.5 ft) 的 44.0% 提升至 58.7%。
+  - **泛化能力**: 在场景配置发生偏移（未访问过的区域）时，任务进度从 28.0% 大幅提升至 51.0%。
+  - **行为表现**: 相比纯图像baseline，SERF规划的轨迹更直接，能更快到达子目标；并且在执行中发生物体掉落等失败时，能够通过检索记忆中的物体位置进行恢复（捡起重试）。
+
+---
+
+
+### 5. 🔥 [Sparse2Act: Learning Action-Aligned Sparse 3D Representations for Cross-Domain Robot Manipulation] (Sparse2Act：学习动作对齐的稀疏3D表征用于跨域机器人操作)
+- **研究机构**: `UCLA (加州大学洛杉矶分校), UCSD (加州大学圣地亚哥分校), 犹他大学`
+- **Arxiv ID**: `2606.12759` | [点击跳转](https://arxiv.org/abs/2606.12759)
+
+**0. 论文标题**
+- **英文标题**: Sparse2Act: Learning Action-Aligned Sparse 3D Representations for Cross-Domain Robot Manipulation
+- **中文标题**: Sparse2Act：学习动作对齐的稀疏3D表征用于跨域机器人操作
+- **研究机构**: UCLA (加州大学洛杉矶分校), UCSD (加州大学圣地亚哥分校), 犹他大学
+
+**1. 整体逻辑**
+- **研究任务**: 机器人操作策略中的3D点云表征预训练。
+- **研究动机**: 现有的稀疏3D编码器通常和下游策略一起从头训练，导致学到的特征跟特定的任务、数据分布和动作空间绑死了。现有的3D预训练方法（如点云重建、未来状态预测、对比学习）没有直接利用“机器人动作”来指导3D几何特征的学习，导致预训练特征在下游控制时不够直接有效。
+- **本质改动**: 提出用“任务空间的末端执行器动作”作为监督信号来预训练稀疏3D点云编码器。让模型通过观察掩码后的点云，去预测对应的3D空间动作。下游策略只拿这个预训练好的编码器做初始化，自己该用什么动作空间（比如关节空间）还是用什么，实现表征学习与控制解耦。
+- **技术溯源**: 点云分块和嵌入参考了 Point-BERT，点云预处理流程用了 DP3，位置编码用了 3D RoPE（旋转位置编码）。
+
+**2. 技术拆解**
+- **重点改进**: 把预训练目标从传统的“重建被遮挡的点云”或“预测下一帧状态”，改成了“根据可见的点云特征预测当前的任务空间动作”。通过引入掩码机制，强迫编码器不能只靠局部特征，必须理解整个场景的3D几何结构才能推断出机械臂该怎么动，从而学到与动作对齐的几何先验。
+- **架构细节**: 
+  - **输入**: 裁剪并下采样到1024个点的稀疏3D点云（只用xyz坐标，不用颜色特征）。
+  - **编码**: 用Point-BERT的方法把点云分成多个patch，映射成稀疏3D token。输入到Transformer中，注意力机制里加入了3D RoPE，把每个patch的三维中心坐标直接编码进Query和Key里。
+  - **预训练**: 随机mask掉一部分token，用一个辅助的对齐头（MLP）从剩下的可见token特征中预测任务空间动作。
+  - **下游微调**: 扔掉辅助头，只用预训练好的Transformer编码器初始化下游策略的点云分支。下游策略结合本体感觉，输出实际控制动作。
+- **核心 Loss**: 
+  - **预训练Loss**: 预测的任务空间动作与真实动作的 L2 距离（MSE）。
+  - **下游Loss**: 标准的行为克隆（BC）Loss。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - **数据集**: LIBERO-10, Meta-World-5, 以及真实机器人（AgileX PiPER）的4个操作任务。
+  - **Baseline**: DP3（从头训练）, FVP（未来预测预训练）, AFRO（动态感知预训练）, 以及大模型方法 SpatialVLA 和 π0。
+- **评价指标**: 任务成功率（Success rate）。
+- **实验结果**: 
+  - **域内微调**: 在 LIBERO-10 上达到 86.9%（DP3从头训只有29.1%，匹敌 π0 的85.2%，优于 SpatialVLA的55.5%）；在 Meta-World-5 上达到 85.6%（远超 FVP的28.4% 和 AFRO的48.8%）。
+  - **跨域迁移**: 在 LIBERO-10 上预训练，直接去微调 Meta-World-5，成功率仍有 73.4%。
+  - **数据效率**: 下游只需要很少的演示数据（如10条）和几百步微调就能收敛，从头训练1000步还达不到这个效果。
+  - **Sim-to-Real**: 在仿真里预训练编码器，真机只给50条演示数据微调。4个真机任务平均成功率 72.5%（从头混合训练只有20%-25%）。
+  - **消融实验**: 证明了“掩码”和“动作预测”缺一不可；并且把下游动作解码器换成简单的MLP，成功率依然很高（74.7%），说明性能提升确实是因为预训练把3D编码器学好了，而不是靠下游网络硬凑的。
+
+---
+
+
+### 6. 🔥 [EWAM: An Enhanced World Action Model for Closed-Loop Online Adaptation in Embodied Intelligence] (EWAM：一种用于具身智能闭环在线自适应的增强型世界动作模型)
+- **研究机构**: `Astronex Robotics, 南京信息工程大学`
+- **Arxiv ID**: `2606.12690` | [点击跳转](https://arxiv.org/abs/2606.12690)
+
+**0. 论文标题**
+- **英文标题**: EWAM: An Enhanced World Action Model for Closed-Loop Online Adaptation in Embodied Intelligence
+- **中文标题**: EWAM：一种用于具身智能闭环在线自适应的增强型世界动作模型
+- **研究机构**: Astronex Robotics, 南京信息工程大学
+
+**1. 整体逻辑**
+- **研究任务**: 机器人在开放环境下的零样本操作任务（如 RoboLab 中的 BananaInBowlTask，将香蕉抓取放入碗中）。
+- **研究动机**: 现有的世界动作模型（WAM）在部署到新场景时面临三个问题：1）收集覆盖所有长尾场景的离线数据成本太高；2）很多失败不是因为语义理解错，而是执行层面的偏差（如碰撞、抓空、感知幻觉）；3）静态模型无法利用成功的局部经验，而盲目进行在线更新又容易把错误轨迹学进去，导致模型能力退化。
+- **本质改动**: 保持预训练的 WAM 主干网络完全冻结，通过在其内部插入四个轻量级的可训练神经层（经验记忆、异常检测、策略路由、动作纠正），配合经验过滤机制，实现不遗忘基础能力的闭环在线自适应。
+- **技术溯源**: 基于 Cosmos3-Nano-Policy-DROID（一个包含视觉语言编码器、自回归推理器和扩散 Transformer (DiT) 的 WAM 基座模型）。
+
+**2. 技术拆解**
+- **重点改进**: 在冻结的 DiT 主干中插入四个模块形成闭环：1) **经验记忆层**：在 DiT 中间层注入检索到的历史成功经验；2) **异常检测层**：在状态预测后评估碰撞、抓空等执行风险；3) **策略路由层**：根据异常程度决定是直接执行、保守重规划还是回滚恢复；4) **动作纠正层**：根据路由决策微调输出的动作。同时引入经验过滤和回滚机制，防止低质量轨迹污染记忆库和模型更新。
+- **架构细节**: 
+  - **输入输出**：输入为视觉观察、本体感受状态和语言指令；输出为修正后的机器人动作序列（Action chunk）。
+  - **模型结构**：主干 VLE 和 AR Reasoner 提取特征后进入 DiT。记忆层插在 DiT 的第 6 层，检索 Top-5 经验。异常检测层输出 6 维向量（包含预测残差、动力学不一致、碰撞/抓空/幻觉/力违规概率）。路由层输出 3 种策略（直接/保守/回滚）。纠正层根据策略修改动作。
+  - **模型规模**：主干参数 $\phi$ 全部冻结，仅训练四个插入层和轻量级 Adapter 的参数 $\theta$。
+- **核心 Loss**: 
+  - 主 Loss：状态预测 MSE ($L_{state}$) 和动作预测 MSE ($L_{act}$)。
+  - 辅助 Loss：记忆检索、异常检测、路由分类和动作纠正 Loss（纠正 Loss 为预测动作与安全动作的 MSE）。
+  - 各项 Loss 权重配置为：Action / state / memory / anomaly / routing / correction = 1.0 / 0.5 / 0.3 / 0.8 / 0.6 / 1.2。
+
+**3. 实验结果**
+- **数据集和baseline**: 实验在 RoboLab 高保真仿真平台上进行（零样本操作任务）。Baseline 为未添加任何插入层的原始 Cosmos3-Nano-Policy-DROID 模型。
+- **评价指标**: 任务成功率（Task success rate）、完成时间（Completion time）、路径长度（Path length）、单回合总执行故障数（Total execution faults，如碰撞、抓空等）。
+- **实验结果**: 在 BananaInBowlTask 任务中，EWAM 保持了与基线一致的 100% 任务成功率，但执行效率和质量大幅提升：完成时间从 25.60秒 降至 9.27秒，移动路径从 1.81米 缩短至 0.83米，单回合执行故障从 13.5次 大幅降至 2.2次。消融实验也证明，在这种零样本设定下，基于记忆检索的即时自适应比直接进行稀疏在线参数更新更有效。
+
+---
+
+
+### 7. 🔥 [EgoEngine: [摘要未提供完整标题，以核心方法命名]] (EgoEngine：将第一人称人类视频转化为机器人数据以实现灵巧操作)
+- **研究机构**: `[摘要未提供]`
+- **Arxiv ID**: `2606.12604` | [点击跳转](https://arxiv.org/abs/2606.12604)
+
+**0. 论文标题**
+- **英文标题**: EgoEngine: [摘要未提供完整标题，以核心方法命名]
+- **中文标题**: EgoEngine：将第一人称人类视频转化为机器人数据以实现灵巧操作
+- **研究机构**: [摘要未提供]
+
+**1. 整体逻辑**
+- **研究任务**: 利用第一人称（Egocentric）人类视频，训练机器人的灵巧手操作视觉运动策略。
+- **研究动机**: 采集大规模真实机器人数据成本太高。人类第一人称视频虽然数据量大、动作丰富，但直接用于机器人学习面临两个问题：一是视觉差异（人手和机器手在画面中长得不同），二是动作差异（人类手部运动学和机器人不同，人做的动作机器手无法直接执行）。
+- **本质改动**: 设计了一个名为 EgoEngine 的框架，直接将人类操作视频“翻译”成高保真的机器人数据，同时解决视觉和动作两个维度的差异问题。
+- **技术溯源**: [摘要未明确提及具体开源基座，推测视觉转换部分依赖视频生成/编辑模型，动作转换部分依赖运动学重定向算法]
+
+**2. 技术拆解**
+- **重点改进**: 核心改动分为视觉和动作两部分。视觉上，将视频中的手部替换为机器人手部，同时保持背景场景和时间戳的严格对齐；动作上，在满足机器人物理可行性约束的前提下，将人类动作映射为机器人可执行的动作轨迹。
+- **架构细节**: 输入为一段第一人称 RGB 视频。输出包含两部分：(1) 高保真的机器人观测视频（人手被替换为机器手，场景上下文和时间对齐）；(2) 满足可行性约束的机器人动作轨迹。[摘要未提供具体的网络结构和模型规模]
+- **核心 Loss**: [摘要未提供具体 Loss 细节，推测包含视频生成的重建/对抗 Loss，以及动作轨迹的物理可行性与任务对齐 Loss]
+
+**3. 实验结果**
+- **数据集和baseline**: [摘要未列出具体数据集和对比方法名称，主要对比的是无真实机器人数据参与训练的相关方法]
+- **评价指标**: 仿真环境和真实机器人上的零样本（Zero-shot）任务成功率。
+- **实验结果**: 实现了人类视频到机器人数据的大规模转化。核心亮点是，这是首次在不使用任何真实机器人演示数据的情况下，仅凭第一人称人类视频就训练出了零样本视觉运动灵巧操作策略，并在仿真和真机上验证了有效性。
+
+---
+
+
+### 8. 🔥 [Action-Effect Memory Pretraining for Robot Manipulation] (用于机器人操作的“动作-效果”记忆预训练)
+- **研究机构**: `香港科技大学（广州）, 深圳大学`
+- **Arxiv ID**: `2606.12499` | [点击跳转](https://arxiv.org/abs/2606.12499)
+
+**0. 论文标题**
+- **英文标题**: Action-Effect Memory Pretraining for Robot Manipulation
+- **中文标题**: 用于机器人操作的“动作-效果”记忆预训练
+- **研究机构**: 香港科技大学（广州）, 深圳大学
+
+**1. 整体逻辑**
+- **研究任务**: 机器人操作任务中的视觉-动作表征预训练与策略学习。
+- **研究动机**: 现有的视觉预训练大多只关注单帧图像，忽略了时间信息。但在真实操作中，由于遮挡或环境延迟，单帧往往不够，需要历史记忆。如果直接在下游策略里堆叠历史帧，会导致计算量和推理延迟大幅增加，且没有解决“机器人到底需要什么样的记忆表征”的问题。
+- **本质改动**: 提出AEM框架，在预训练阶段把长序列的“视觉+动作”交互历史，压缩成一个固定大小的单向量表征（利用Mamba编码的最后一个视觉token），然后把这个单向量作为全局记忆注入到下游策略中。
+- **技术溯源**: 视觉特征基于 DINOv2，序列编码基于 Mamba，解码器基于 Transformer，下游策略结合了 Diffusion Policy (DP) 和 ManiFlow。
+
+**2. 技术拆解**
+- **重点改进**: 
+  1. **交错输入与对齐掩码**：把视觉特征和动作特征按时间步交错排列，并在时间步级别进行对齐掩码（即某一步的视觉和动作一起被mask）。这迫使模型去学习“动作是如何导致状态变化”的因果关系。
+  2. **无额外Token的紧凑记忆**：没有像常规做法那样引入一个专门的 learnable memory token，而是直接复用 Mamba 编码器输出的**最后一个视觉 token** 作为信息瓶颈，将其输出作为压缩后的单向量历史记忆。
+- **架构细节**: 
+  - **输入**：DINOv2 提取的 768 维视觉 CLS 特征和 14 维机器人动作，通过线性层投影到 512 维共享空间。
+  - **编码器**：6 层 Mamba（状态维度 256），用于处理交错序列。历史窗口设为 32 步，掩码率 70%，最后一个视觉 token 保持可见。
+  - **解码器**：2 层轻量级 Transformer，利用最后一个视觉 token 的输出作为全局上下文，重建被 mask 的视觉和动作特征。
+  - **下游接入**：下游策略的输入从单纯的“当前帧特征”改为“当前帧特征 + AEM提取的单向量记忆 + 任务条件”。
+- **核心 Loss**: 掩码重建 Loss。包含视觉和动作两个分支的重建误差，采用 MSE 加上余弦距离（权重 0.1），只计算被 mask 位置的 Loss。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - **数据集**：RoboTwin2.0（11个标准双臂操作任务，分干净和随机干扰场景），RMBench（2个需要依赖历史记忆的非马尔可夫任务），以及真机实验。
+  - **Baseline**：Diffusion Policy (DP) 和 ManiFlow。同时对比了无历史输入、直接拼接单帧 DINOv2 特征、直接堆叠多帧（8帧/16帧）DINOv2 特征的做法。
+- **评价指标**: 任务成功率（%），单步推理延迟（ms），计算量（FLOPs）。
+- **实验结果**: 
+  - **对比无历史**：在 RoboTwin2.0 的 11 个任务中，DP+AEM 的平均成功率从 29.8% 提升到 50.5%（+20.7%），ManiFlow+AEM 从 9.8% 提升到 29.1%（+19.3%）。在需要记忆的 RMBench 任务和随机干扰场景下，成功率提升更加显著。
+  - **对比直接堆叠帧**：在“放鞋子”任务中，直接堆叠 16 帧 DINOv2 特征的成功率只有 40%，且推理延迟高达 824ms；而 DP+AEM（使用16步历史）的成功率达到 76%，推理延迟降至 730ms，计算量也明显更小。证明了压缩成单向量记忆比直接堆叠原始特征既准又快。
+
+---
+
+
+### 9. 🔥 [$\mu$VLA: On Recurrent Memory for Partially Observable Manipulation in VLA Models] ($\mu$VLA：VLA模型中用于部分可观测操作的循环记忆研究)
+- **研究机构**: `CogAI Lab, MIRAI (俄罗斯莫斯科)`
+- **Arxiv ID**: `2606.12497` | [点击跳转](https://arxiv.org/abs/2606.12497)
+
+**0. 论文标题**
+- **英文标题**: $\mu$VLA: On Recurrent Memory for Partially Observable Manipulation in VLA Models
+- **中文标题**: $\mu$VLA：VLA模型中用于部分可观测操作的循环记忆研究
+- **研究机构**: CogAI Lab, MIRAI (俄罗斯莫斯科)
+
+**1. 整体逻辑**
+- **研究任务**: 部分可观测环境下的机器人视觉-语言-动作（VLA）操作任务。
+- **研究动机**: 现有VLA模型默认“当前画面信息足够做决策”（马尔可夫假设），遇到遮挡或瞬态信息就会失效。之前的工作给VLA加记忆时，往往同时塞入检索、压缩、辅助loss等复杂模块，导致无法单独评估“循环记忆（recurrence）”本身的贡献。
+- **本质改动**: 做了一次纯粹的控制变量实验。只在预训练VLA中引入一小撮可学习的“记忆token”，通过自注意力机制在时间步间传递和更新。不加任何辅助loss，不改网络架构，单独验证极简的“循环记忆”到底能解决多大问题。
+- **技术溯源**: 基于 OpenVLA-OFT (SigLIP/DINOv2 双视觉编码器 + Llama-2-7B 骨干网络)。
+
+**2. 技术拆解**
+- **重点改进**: 在Transformer的输入序列中插入 $m$ 个可学习的 memory tokens。每一步模型在观察当前画面和语言的同时，更新这 $m$ 个 token，并将其传递给下一步，形成循环记忆。
+- **架构细节**: 
+  - **输入输出**: 输入序列为 `[BOS] [视觉] [本体感觉] [记忆tokens] [文本] [动作] [STOP]`。输出为动作chunk和更新后的记忆tokens。
+  - **注意力掩码 (Attention-mask guard)**: 关键改动。修改注意力矩阵，禁止记忆tokens和其他前缀tokens去关注“动作tokens”。这能防止模型走捷径直接把预测的动作复制进记忆里，逼迫它去编码真正有用的视觉观测信息。
+  - **数据加载 (Round-robin episodic dataloader)**: 将原来打乱时间步的加载方式，改为按完整 episode 顺序加载，保证时间序列的连续性。
+  - **训练方式 (TBPTT)**: 使用截断反向传播通过时间（TBPTT）进行端到端训练。对比了不同截断长度 $K$，发现 $K=2$ 效果最好；同时也对比了不带梯度的指数移动平均（EMA）更新规则。
+  - **推理方式 (Receding-horizon inference)**: 推理时放弃 action chunking（一次性执行多个动作），改为每步只执行预测 chunk 的第一个动作，然后立刻重新查询模型更新 memory。这保证了训练和推理时 memory 的更新频率完全一致。
+- **核心 Loss**: 仅使用标准的动作预测 L1 Loss，没有任何辅助任务（如视频重建、状态预测等）。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - **数据集**: MIKASA-Robo（专门测试部分可观测和记忆能力的操作基准），LIBERO（全可观测基准，用于验证加记忆是否会导致简单任务掉点）。
+  - **Baseline**: 无记忆的 OpenVLA-OFT，以及仅修改了数据加载方式但无记忆的 OpenVLA-OFT。
+- **评价指标**: 任务成功率（Success Rate, SR）。
+- **实验结果**: 
+  - **训练任务（同分布）**: 在5个训练任务上，最强配置（m=64, K=2, TBPTT）平均成功率从 baseline 的 0.42 提升至 0.84。
+  - **测试任务（同记忆逻辑）**: 在11个记忆逻辑相同但难度或动作不同的测试任务上，成功率从 0.07 提升至 0.23。
+  - **测试任务（新记忆逻辑）**: 在7个需要全新记忆逻辑的任务上，表现与 baseline 持平（说明这种极简的骨干内循环记忆存在能力天花板，复杂任务仍需更复杂的记忆结构）。
+  - **对照组（LIBERO）**: 在全可观测的 LIBERO 数据集上，最强循环配置达到 96.2% 的平均成功率，证明引入循环记忆不会让原本不需要记忆的马尔可夫任务性能下降。
+  - **消融结论**: 端到端的跨步梯度（TBPTT）显著优于无梯度的 EMA 更新；截断长度 $K$ 不需要太长，$K=2$ 是性价比和效果最好的选择。
+
+---
+</script>
+            <script>
+                const rawMdElement = document.getElementById('raw-markdown');
+                if (rawMdElement) {
+                    document.getElementById('content').innerHTML = marked.parse(rawMdElement.textContent);
+                    // 渲染后触发公式排版
+                    if (window.MathJax && window.MathJax.typesetPromise) {
+                        window.MathJax.typesetPromise();
+                    }
+                }
+                function copySources() { /* 原代码保持不变 */ }
+            </script>
+        </body>
+        </html>
+        
