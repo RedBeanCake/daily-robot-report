@@ -1,0 +1,387 @@
+
+        <!DOCTYPE html>
+        <html lang="zh-CN">
+        <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>🤖 具身大模型简报 - Wed, 17 Jun 2026 (VLA: 9 of 54 entries)</title>
+            <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.2.0/github-markdown.min.css">
+            <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+            <script>
+                window.MathJax = {
+                    tex: { inlineMath: [['$', '$'], ['\\(', '\\)']], displayMath: [['$$', '$$'], ['\\[', '\\]']] },
+                    options: { skipHtmlTags: ['script', 'style', 'textarea'] }
+                };
+            </script>
+            <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+            <style>
+                .markdown-body { box-sizing: border-box; min-width: 200px; max-width: 980px; margin: 0 auto; padding: 45px; }
+                @media (max-width: 767px) { .markdown-body { padding: 15px; } }
+            </style>
+        </head>
+        <body class="markdown-body">
+            <a href='../index.html' style='margin-bottom:20px; display:block;'>← 返回主索引</a>
+            <h1>🤖 具身大模型简报 - Wed, 17 Jun 2026 (VLA: 9 of 54 entries)</h1>
+            <div id="content"></div>
+            
+            <script type="text/markdown" id="raw-markdown">### 1. 🔥 [Uncertainty Quantification for Flow-Based Vision-Language-Action Models] (基于Flow Matching的视觉-语言-动作模型的不确定性量化)
+- **研究机构**: `慕尼黑工业大学 (TU Munich), 苏黎世联邦理工学院 (ETH Zurich)`
+- **Arxiv ID**: `2606.18043` | [点击跳转](https://arxiv.org/abs/2606.18043)
+
+**0. 论文标题**
+- **英文标题**: Uncertainty Quantification for Flow-Based Vision-Language-Action Models
+- **中文标题**: 基于Flow Matching的视觉-语言-动作模型的不确定性量化
+- **研究机构**: 慕尼黑工业大学 (TU Munich), 苏黎世联邦理工学院 (ETH Zurich)
+
+**1. 整体逻辑**
+- **研究任务**: 为基于 Flow Matching 的视觉-语言-动作模型（Flow-based VLAs）估计认知不确定性，并将其应用于部署时的失败检测和新任务微调时的主动数据收集。
+- **研究动机**: 现有的 Flow-based VLA 在遇到分布外（OOD）场景时缺乏“知之为知之”的能力，会盲目自信地输出错误动作，存在安全隐患；此外，微调 VLA 需要收集大量昂贵的人类专家演示，盲目收集效率极低，需要一种机制来指导“该收集哪些数据”。
+- **本质改动**: 提出通过计算小型模型集成在 Flow Matching 生成过程中的“速度场分歧（VFD）”来高效估计认知不确定性；并基于此提出 SAVE 框架，根据不确定性分数主动挑选高价值数据进行微调。
+- **技术溯源**: 基于 Flow Matching 的 VLA 架构（如 $\pi_0$, SmolVLA 等）。
+
+**2. 技术拆解**
+- **重点改进**: 
+  1. 提出 VFD（Velocity-Field Disagreement）指标：从数学上推导了 Flow Matching 模型间 KL 散度与速度场差异的关系，将复杂的概率分布差异计算转化为直接计算速度场的差异。
+  2. 提出 SAVE（不确定性引导的主动多任务微调）框架：利用 VFD 分数对任务和初始状态进行排序，优先向专家查询不确定性最高的数据，并结合经验回放进行模型微调。
+- **架构细节**: 
+  - **输入输出**: 输入为多模态观测（相机图像、语言指令、机器人本体感觉），输出为连续的动作块（Action chunks）。
+  - **模型集成构建**: 为了避免从头训练多个大模型的巨大开销，使用单一预训练 VLA 基座，在随机打乱的数据集上微调 $M$ 次，构建包含 $M$ 个模型的集成。
+  - **不确定性计算**: 推理时，对候选初始状态进行 ODE 积分。在积分的中间时间步，计算这 $M$ 个模型预测的速度场之间的 L2 距离。时间步 $s$ 越靠近生成终点（噪声越小），计算出的速度场差异权重越大。
+- **核心 Loss**: 
+  - 模型训练使用标准的 Flow Matching Loss（预测速度场与条件最优传输路径目标速度场的均方误差 MSE）。
+  - VFD 本身不需要额外的训练 Loss，它是推理阶段直接通过前向传播计算的评估指标。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - **数据集**: LIBERO 多任务操作基准测试集。
+  - **Baseline**: 其他不确定性估计方法（如 Laplace 近似、直接计算集成模型输出动作的差异、基于语言空间相似度的方法等）。
+- **评价指标**: 
+  - **校准度 (Calibration)**: 评估不确定性估计值与下游任务实际成功率之间的预测相关性。
+  - **失败检测 (Failure Detection)**: 在部署阶段区分机器人执行轨迹是成功还是失败的能力。
+  - **数据效率 (Data Efficiency)**: 在主动微调中，达到相同任务性能所需的专家演示样本数量。
+- **实验结果**: 
+  - VFD 提供了比 baseline 校准度更好的不确定性估计，能更准确地预测模型在下游任务中的实际表现。
+  - 在失败检测任务中，VFD 能更可靠地识别出分布外场景下的错误动作。
+  - 使用 SAVE 框架进行不确定性引导的数据收集，比 baseline 方法至少节省了 22 个专家样本，显著提高了多任务适应的数据效率。
+
+---
+
+
+### 2. 🔥 [ThinkingVLA] (ThinkingVLA：结合前向与逆向思维链的视觉-语言-动作模型)
+- **研究机构**: `摘要未明确提及`
+- **Arxiv ID**: `2606.17937` | [点击跳转](https://arxiv.org/abs/2606.17937)
+
+**0. 论文标题**
+- **英文标题**: ThinkingVLA
+- **中文标题**: ThinkingVLA：结合前向与逆向思维链的视觉-语言-动作模型
+- **研究机构**: 摘要未明确提及
+
+**1. 整体逻辑**
+- **研究任务**: 具身智能中的视觉-语言-动作（VLA）模型，重点解决需要复杂推理的长序列（long-horizon）机器人操作任务。
+- **研究动机**: 现有的VLA模型直接把观测映射成动作，缺乏显式推理过程，导致长序列任务容易失败。虽然有些方法引入了思维链（CoT），但缺乏统一的跨模态推理架构，而且没有基于目标状态“往回推”的逆向推理能力。
+- **本质改动**: 将操作规划拆解为“预测下一步视觉状态”和“逆向推导动作”两步。用一个统一的混合Transformer架构把文本和视觉推理交织在一起，实现先正向预测画面、再逆向推导动作的完整推理闭环。
+- **技术溯源**: 基于自回归生成架构（Autoregressive architecture）、混合Transformer（Mixture-of-Transformers）以及思维链（CoT）机制。
+
+**2. 技术拆解**
+- **重点改进**: 提出了“前向CoT”与“逆向CoT”结合的两阶段推理机制。前向CoT负责确定当前子目标并预测下一帧图像；然后把预测出的图像作为目标状态，输入给逆向CoT，让其根据目标图像推理空间关系和动作意图，最后生成具体动作。
+- **架构细节**: 采用统一的混合Transformer（MoT）自回归架构。输入为当前的视觉观测和文本指令；模型在单次生成过程中，交织输出文本（推理过程）、视觉（预测的中间图像）和动作（最终的机器人控制指令）。
+- **核心 Loss**: 基于自回归生成的Next-token预测损失（联合计算文本token、图像token和动作token的生成误差）。
+
+**3. 实验结果**
+- **数据集和baseline**: 仿真环境和真实世界机器人操作基准测试（摘要未列明具体数据集名称，对比了现有的SOTA VLA模型及引入CoT的基线方法）。
+- **评价指标**: 任务成功率（Success Rate），重点考察长序列任务的完成情况。
+- **实验结果**: 整体表现持续优于现有的SOTA基线模型，特别是在长序列操作任务上取得了非常显著的性能提升。
+
+---
+
+
+### 3. 🔥 [PearlVLA: Progressive Embodied Action-Plan Refinement in Latent Space] (PearlVLA：隐空间中的渐进式具身动作计划修正)
+- **研究机构**: `Imperial College London, Tsinghua University`
+- **Arxiv ID**: `2606.17924` | [点击跳转](https://arxiv.org/abs/2606.17924)
+
+**0. 论文标题**
+- **英文标题**: PearlVLA: Progressive Embodied Action-Plan Refinement in Latent Space
+- **中文标题**: PearlVLA：隐空间中的渐进式具身动作计划修正
+- **研究机构**: Imperial College London, Tsinghua University
+
+**1. 整体逻辑**
+- **研究任务**: 视觉-语言-动作（VLA）模型的动作生成与规划。
+- **研究动机**: 现有的 VLA 模型在“生成速度”和“规划深度”上存在矛盾。直接解码动作速度快，但缺乏前瞻性思考（System 1）；引入文本思维链、像素级子目标或动作搜索能提高规划质量，但会大幅增加推理延迟和计算开销。论文希望在不增加显式推理开销的前提下，让模型在解码动作前能“想一想”。
+- **本质改动**: 把动作计划的“思考与修正”过程移到 VLM 的隐空间（latent space）中进行。不生成文本或像素子目标，而是通过一个冻结的隐式世界模型预测未来的隐状态，用这个未来反馈来迭代修正隐式动作计划，修正 K 轮后再一次性解码出动作块。
+- **技术溯源**: 基于 OpenVLA-7B（VLM 骨干），UWM（Unified World Model，作为冻结的隐式世界模型），Robometer-4B（作为强化学习阶段的奖励模型）。
+
+**2. 技术拆解**
+- **重点改进**: 
+  1. **隐空间闭环修正**：将 VLM 的输出分为固定的视觉锚点（visual anchor）和可写的计划 token。每轮修正时，把当前计划 token 投影成查询向量（query），去问冻结的隐式世界模型要一个“无动作的未来隐状态”。然后用 RefineNet 把这个未来反馈转换成残差，更新计划 token。
+  2. **稳定化设计**：使用锚点查询（防止查询向量偏离世界模型的预训练分布）和调度残差回写（前期大步修正全局方向，后期小步微调局部细节），保证多轮迭代的稳定性。
+  3. **强化学习优化（CRG-PRL）**：在监督学习后，引入因果修正分组过程奖励 RL。在同一个状态下对隐式计划进行局部扰动（多分支），用冻结的奖励模型对想象出的未来画面打分，计算组内相对优势来优化每轮的修正动作，无需训练 Critic 网络。
+- **架构细节**: 
+  - **输入输出**：输入为视觉、语言和本体感觉历史；输出为 H 步的连续动作块（action chunk）。
+  - **模型结构**：OpenVLA-7B 提取多模态特征。隐式世界模型采用 UWM，在推理时只使用其无动作（action-free）的观测预测路径。最终修正好的计划 token 通过一个轻量级的 Action Head 并行回归出动作。
+- **核心 Loss**: 
+  - **监督阶段（SFT）**：动作 MSE loss（带 warmup） + DCT 频域 loss + 输入侧教师对齐 loss（让每轮的世界查询向量靠近冻结 WM 编码器的条件空间，防止分布偏移）。
+  - **RL 阶段（CRG-PRL）**：PPO 目标函数（基于组内相对优势），加上 KL 散度约束（靠近监督策略）、编辑幅度惩罚和最终动作的行为克隆（BC）锚点 loss。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - **数据集**：LIBERO 基准测试（包含 Spatial, Object, Goal, Long 四个子集，每个子集 10 个任务，共 2000 条专家演示）。辅助实验使用了 RoboCasa 数据集。
+  - **Baseline**：现有的 VLA 方法（包括直接解码、基于文本/视觉推理、基于世界模型打分等主流方法）。
+- **评价指标**: 任务成功率（Success Rate）。
+- **实验结果**: 在 LIBERO 基准上达到了 SOTA 性能，四个子集的平均任务成功率达到 98.7%，显著优于现有的直接解码和显式推理方法。
+
+---
+
+
+### 4. 🔥 [WAM-RL: World-Action Model Reinforcement Learning with Reconstruction Rewards and Online Video SFT] (WAM-RL：基于重建奖励和在线视频SFT的世界-动作模型强化学习)
+- **研究机构**: `北京大学（主导）、清华大学、东北大学`
+- **Arxiv ID**: `2606.17906` | [点击跳转](https://arxiv.org/abs/2606.17906)
+
+**0. 论文标题**
+- **英文标题**: WAM-RL: World-Action Model Reinforcement Learning with Reconstruction Rewards and Online Video SFT
+- **中文标题**: WAM-RL：基于重建奖励和在线视频SFT的世界-动作模型强化学习
+- **研究机构**: 北京大学（主导）、清华大学、东北大学
+
+**1. 整体逻辑**
+- **研究任务**: 机器人操作策略学习（具体针对 World-Action 范式模型的强化学习后训练）。
+- **研究动机**: 现有的 World-Action (WA) 模型只靠专家数据做监督学习，学不到示范外的细粒度技能，也没法在真实环境里试错改进。直接给 WA 模型上 RL 行不通，因为动作模型（actor）强依赖世界模型（world model）的隐空间特征，直接改 actor 会导致特征分布偏移，模型直接崩溃。
+- **本质改动**: 提出 WAM-RL 框架，在在线交互中联合优化世界模型和动作模型。世界模型用带 KL 正则的在线视频微调（SFT）更新，动作模型用“想象视频和真实视频的重建误差”作为奖励来做 RL。
+- **技术溯源**: 基于 Genie Envisioner-ACT 架构（DiT 做视频生成的世界模型 + ACT 做动作解码），底层生成和 RL 策略基于 Flow Matching 和 Flow-SDE。
+
+**2. 技术拆解**
+- **重点改进**: 
+  1. 稳定世界模型的在线更新：用成功轨迹微调世界模型预测视频，同时加 KL 散度约束，让更新后的隐特征分布不要偏离预训练模型太远，防止 actor “不认识”新特征。
+  2. 动作模型的 RL 奖励设计：不用传统的环境稀疏奖励，而是算世界模型“想象的未来视频”和“实际执行后的真实视频”之间的像素级误差（Pixel MSE）作为密集奖励。
+- **架构细节**: 
+  - 输入输出：输入当前图像，世界模型在隐空间生成未来视频帧，动作模型读取这些隐特征输出机器人动作序列。
+  - 模型结构：世界模型是 DiT 架构，动作模型是 ACT 架构。RL 部分把 Flow Matching 的确定性 ODE 改成带噪声的 Flow-SDE，从而能算对数概率做策略梯度。
+- **核心 Loss**: 
+  - 世界模型 Loss：视频预测 Loss（Flow Matching loss） + 隐特征 KL 正则 Loss（用 EMA 估计协方差来构建高斯分布，计算当前特征和冻结预训练特征的 KL 散度）。
+  - 动作模型 Loss：策略梯度 Loss（基于重建奖励计算 Advantage，引导动作去实现世界模型的预测）。
+
+**3. 实验结果**
+- **数据集和baseline**: LIBERO (LIBERO-Object) 和 RLBench (Water Plants)。Baseline 是原始预训练模型 (Base) 和只优化 actor 的 RL 方法 ($\pi_{RL}$)。
+- **评价指标**: 任务成功率 (Success Rate)。
+- **实验结果**: 
+  - LIBERO-Object：Base 68% -> $\pi_{RL}$ 78% -> WAM-RL 82%。
+  - RLBench：Base 19% -> $\pi_{RL}$ 18% -> WAM-RL 22%。
+  - 核心发现：只优化 actor 在短任务有效，长任务必须联合更新世界模型；在重建奖励的消融中，像素级 MSE 虽然区分度不如光流，但因为和世界模型的训练目标一致，效果反而最好；在线视频 SFT 让世界模型学会了预测“抓取失败后的重试/纠错动作”，提升了长程任务的鲁棒性。
+
+---
+
+
+### 5. 🔥 [Qwen-RobotManip: A Generalizable Vision-Language-Action Foundation Model for Robotic Manipulation (注：摘要未提供完整原标题，根据核心内容提炼)] (Qwen-RobotManip：面向通用机器人操作的视觉-语言-动作基础模型)
+- **研究机构**: `阿里巴巴 (Alibaba / Qwen Team)`
+- **Arxiv ID**: `2606.17846` | [点击跳转](https://arxiv.org/abs/2606.17846)
+
+**0. 论文标题**
+- **英文标题**: Qwen-RobotManip: A Generalizable Vision-Language-Action Foundation Model for Robotic Manipulation (注：摘要未提供完整原标题，根据核心内容提炼)
+- **中文标题**: Qwen-RobotManip：面向通用机器人操作的视觉-语言-动作基础模型
+- **研究机构**: 阿里巴巴 (Alibaba / Qwen Team)
+
+**1. 整体逻辑**
+- **研究任务**: 训练一个通用的视觉-语言-动作（VLA）基础模型，用于执行各种机器人操作任务。
+- **研究动机**: 语言和视觉大模型靠“统一数据格式+海量数据”实现了强泛化。但机器人操作数据天生异构（不同机器人、不同传感器）、收集贵、种类少。如果直接把各种数据混在一起大规模训练，数据之间会互相冲突，导致模型学不好。此外，现有的标准测试集已经无法有效评估预训练模型的真实泛化水平了。
+- **本质改动**: 设计了一套跨“特征表示、运动学、任务行为”三个维度的统一数据对齐框架，把各种异构数据理顺，让大规模多源数据能一起训练而不冲突。同时开发了人类视频到机器人轨迹的自动转换管线，将预训练数据规模扩充至 3.8 万小时。
+- **技术溯源**: 基于 Qwen-VL（通义千问视觉语言模型）作为基座。
+
+**2. 技术拆解**
+- **重点改进**: 
+  1. 三维统一对齐框架：在表示层、运动层和行为层对异构数据进行对齐，解决多源数据混合训练时的冲突问题。
+  2. 人-机器人合成管线：把第一人称视角的人类手部操作视频，自动转换成 15 种不同机器人平台的机械臂轨迹。
+  3. 数据清洗管线：严格筛选和统一不同来源的开源数据集，保证数据质量。
+- **架构细节**: 基座是 Qwen-VL。输入为视觉图像和语言指令，输出为机器人动作。预训练语料库约 38,100 小时，全部来自开源数据集和人类视频，没有使用任何私有采集数据。
+- **核心 Loss**: 摘要未详细披露具体公式。但基于其提出的三维统一对齐框架，核心 Loss 必然包含多模态特征对齐 Loss 和动作轨迹预测 Loss，并可能辅以视频重建或对比学习等辅助任务，以确保表示、运动和行为三个维度的对齐效果。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - 训练数据：38,100 小时的开源数据集和人类视频。
+  - 评估数据集：放弃标准测试集，采用分布外（OOD）测试集，包括 RoboCasa365, LIBERO-Plus, EBench, RoboTwin-Clean2Rand, RoboTwin-IF, RoboTwin-XE。
+  - Baseline：此前的 SOTA 模型，重点对比了 $\pi_{0.5}$ (pi0.5)。
+- **评价指标**: 在各类 OOD 测试集上的任务表现，以及 RoboChallenge 榜单的综合排名。
+- **实验结果**: 
+  - 在所有 OOD 测试集上，大幅超越包括 $\pi_{0.5}$ 在内的现有 SOTA 模型。
+  - 在 RoboChallenge 榜单排名第一，相对性能提升了 20%。
+  - 模型展现出零样本指令跟随、抗物理扰动、错误后自动恢复、跨机器人本体迁移等泛化能力。
+  - 在 AgileX ALOHA, Franka, UR, ARX 等多种真实物理机器人平台上完成了实机验证。
+
+---
+
+
+### 6. 🔥 [MuseVLA: An Adaptive Multimodal Sensing Vision-Language-Action Model for Robotic Manipulation] (MuseVLA：一种用于机器人操作的自适应多模态感知视觉-语言-动作模型)
+- **研究机构**: `北京大学、微软亚洲研究院 (MSRA)、普林斯顿大学、清华大学`
+- **Arxiv ID**: `2606.17598` | [点击跳转](https://arxiv.org/abs/2606.17598)
+
+**0. 论文标题**
+- **英文标题**: MuseVLA: An Adaptive Multimodal Sensing Vision-Language-Action Model for Robotic Manipulation
+- **中文标题**: MuseVLA：一种用于机器人操作的自适应多模态感知视觉-语言-动作模型
+- **研究机构**: 北京大学、微软亚洲研究院 (MSRA)、普林斯顿大学、清华大学
+
+**1. 整体逻辑**
+- **研究任务**: 需要非视觉传感器（如热成像、声音、毫米波雷达）辅助的机器人灵巧手操作任务。例如：根据温度抓取特定杯子、听声辨位找被遮挡的手机、用雷达透视找盒子里的物品。
+- **研究动机**: 现有的VLA模型大多只依赖RGB图像，无法感知温度、声音或穿透遮挡物。现有的多模态VLA要么给每种传感器单独设计编码器（难以扩展），要么把所有传感器数据无脑拼接输入（计算浪费且缺乏针对性）。此外，真实的多模态机器人数据非常昂贵且稀缺。
+- **本质改动**: 把传感器当成“按需调用的工具”。模型先根据任务决定“用哪个传感器”和“看哪个目标”，然后把该传感器的数据转成“接地传感器图像”（把热力图叠加到RGB图像的目标区域），最后再输入VLA生成动作。同时，提出了一套数据合成管线，用纯RGB数据合成多模态数据来解决数据荒。
+- **技术溯源**: VLM基座使用 PaliGemma-2 (包含 Gemma-2 语言模型和 SigLIP 视觉编码器)，动作专家使用 DiT (Diffusion Transformer)，整体权重从 VITRA 初始化，目标分割使用 SAM3。
+
+**2. 技术拆解**
+- **重点改进**: 
+  1. 引入可学习的“传感器Token”（如 `<Thermal>`, `<Acoustic>`, `<mmWave>`），让模型像调用工具一样自适应选择传感器。
+  2. 提出“接地传感器图像 (Grounded Sensor Image)”表示法，将异构传感器数据统一映射到RGB空间，从而复用同一个预训练视觉编码器，免去了为每个传感器设计专门编码器的麻烦。
+  3. 提出数据合成管线，利用现有纯RGB数据集合成多模态训练数据。
+- **架构细节**: 
+  - **输入**: RGB图像 + 文本指令。
+  - **传感器选择与接地**: VLM首先输出一个传感器Token（决定用哪个传感器）和一个目标描述（如“the mugs”）。接着，用SAM3根据目标描述在RGB图像上切出Mask，将对应传感器的热力图叠加到Mask区域，非Mask区域保留原RGB，生成“接地传感器图像”。
+  - **动作生成**: 将原始RGB和“接地传感器图像”一起输入SigLIP视觉编码器，结合机器人状态，输入给DiT动作专家，通过扩散过程生成动作序列。
+- **核心 Loss**: 
+  - 采用VLM和VLA联合训练。总 Loss = VLM Loss + 动作 Diffusion Loss。
+  - VLM Loss 包含两部分：传感器Token生成的交叉熵损失 + 目标描述生成的交叉熵损失。
+  - 动作 Loss 为扩散模型预测噪声的 MSE 损失。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - **数据集**: 真实世界收集了720个遥操作演示（涵盖热成像、声音、雷达3类任务）。合成数据集：利用 MolmoAct、AgiBotWorld-Alpha、VITRA 等纯RGB数据，通过叠加彩色Mask合成了9.6K个episode（105万帧）。
+  - **Baseline**: 纯RGB的VLA（如 $\pi_0$-RGB, $\pi_{0.5}$-RGB），以及直接拼接所有传感器原始热力图的VLA（如 $\pi_0$-Raw, $\pi_{0.5}$-Raw）。
+- **评价指标**: 
+  - **任务成功率 (Task success rate)**: 端到端完成整个任务的比例。
+  - **任务得分 (Task score)**: 拆分为“感知子任务（找对目标）”和“操作子任务（做对动作）”，各占0.5分。
+- **实验结果**: 
+  - **主实验**: 在真实机器人上，仅用真实数据训练的 MuseVLA 平均成功率达 76.4%，比纯RGB基线（约20%）和直接拼接原始传感器数据的基线（约27%）大幅提升。加入合成数据预训练后，平均成功率进一步提升至 80.6%。
+  - **自适应选择**: 传感器选择准确率极高。在训练任务上，传感器Token准确率100%，目标描述准确率93.5%；在未见过的任务上也能达到100%和82%。
+  - **零样本泛化**: 在未见过的任务上，经过合成数据预训练的 MuseVLA 成功率达 66.7%，远超无预训练模型的 27.1%，证明了数据合成管线的有效性。
+
+---
+
+
+### 7. 🔥 [Where Should Action Generation Begin? A Learnable Source Prior for Generative Robot Policies] (动作生成应该从哪里开始？面向生成式机器人策略的可学习源先验)
+- **研究机构**: `东南大学 (Southeast University), 香港中文大学 (The Chinese University of Hong Kong)`
+- **Arxiv ID**: `2606.17408` | [点击跳转](https://arxiv.org/abs/2606.17408)
+
+**0. 论文标题**
+- **英文标题**: Where Should Action Generation Begin? A Learnable Source Prior for Generative Robot Policies
+- **中文标题**: 动作生成应该从哪里开始？面向生成式机器人策略的可学习源先验
+- **研究机构**: 东南大学 (Southeast University), 香港中文大学 (The Chinese University of Hong Kong)
+
+**1. 整体逻辑**
+- **研究任务**: 基于生成模型（Flow Matching / Diffusion）的机器人视觉-运动模仿学习，具体为根据视觉和本体感觉观测生成动作块（Action Chunk）。
+- **研究动机**: 现有的生成式策略默认从与观测无关的标准高斯白噪声 $\mathcal{N}(\mathbf{0}, \mathbf{I})$ 开始生成动作，导致生成器要把大量算力浪费在把“无信息噪声”搬运到“有效动作空间”上。现有的改进方法（如 A2A, VITA）虽然用观测做了初始化，但大多是确定性的点估计或固定方差的分布，没有建模源分布的不确定性，且往往需要改动下游生成器的架构。
+- **本质改动**: 设计了一个轻量级的可学习源先验（LeaP），用“本体感觉条件化的可学习对角高斯分布”替代标准高斯白噪声作为动作生成的起点。它只预测均值和状态自适应的方差，即插即用，不改变下游生成器的网络结构和推理求解器。
+- **技术溯源**: 基于 Flow Matching 框架（具体使用了 SimpleFlowNet 作为生成器），特征提取使用了 DP3 的 PointNet encoder。
+
+**2. 技术拆解**
+- **重点改进**: 将动作生成的初始噪声分布从固定的标准高斯分布，改为由本体感觉（proprioception）特征条件化的可学习高斯分布 $\mathcal{N}(\boldsymbol{\mu}_\phi(\mathbf{z}_s), \text{diag}(\boldsymbol{\sigma}^2_\phi(\mathbf{z}_s)))$。
+- **架构细节**: 
+  - **输入**: 仅使用本体感觉特征 $\mathbf{z}_s$（消融实验证明加入视觉特征反而掉点），视觉特征留给下游生成器处理。
+  - **模型结构**: 一个轻量级的两层 MLP（$g_\phi$），参数量仅占整体的 1.6%（0.21M / 13.22M）。输出分为均值头和 log-variance 头，维度为单步动作维度 $d_a$。该高斯分布的参数应用于动作块（action chunk）的每一个时间步。
+  - **推理过程**: 通过重参数化技巧从该高斯分布采样得到初始动作 $\mathbf{z}_0$，然后输入给下游的 Flow Matching 生成器（条件为视觉+本体感觉）进行积分，生成最终动作。
+- **核心 Loss**: 联合训练目标，包含三部分：
+  1. **$\mathcal{L}_{\text{flow}}$**: Flow Matching 的速度场回归主 Loss，梯度会回传给 Prior 网络。
+  2. **$\mathcal{L}_{\text{NLL}}$**: 负对数似然 Loss，用于监督 Prior 预测的高斯分布密度，让预测的均值和方差去拟合专家动作。
+  3. **$\mathcal{L}_{\text{align}}$**: CLIP 风格的对称对比对齐 Loss，在嵌入空间中对齐采样的源动作 $\mathbf{z}_0$ 和真实专家动作 $\mathbf{a}$ 的实例级对应关系。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - **数据集**: 仿真使用 RoboTwin 2.0 的 15 个双臂操作任务（每任务 50 条专家数据）；真机使用 Franka 机械臂的 3 个任务（每任务 100 条数据）。
+  - **Baseline**: A2A（确定性本体感觉源）、VITA（确定性视觉源）、NoPrior（标准高斯白噪声，即无先验的消融组）、BridgePolicy（扩散桥策略）。
+- **评价指标**: 任务成功率（Success Rate）。仿真中每任务 100 次 rollout，真机每任务 20 次 rollout。同时评估了参数量和训练收敛速度。
+- **实验结果**: 
+  - **仿真表现**: LeaP 平均成功率达到 81.6%，比 A2A、VITA、NoPrior、BridgePolicy 分别高出 7.8、6.5、25.5、20.2 个百分点（整体高出 6.5~25.5 pp）。特别是比完全相同生成器架构的 NoPrior 高出 25.5%，证明提升纯粹来自于源先验的改进。
+  - **效率与收敛**: 总参数量仅 13.22M（Prior 网络仅 0.21M），比 A2A/VITA 少 28%，比 ACT/DP3 等少 6-20 倍。训练收敛极快，1000 epoch 即可达到 91% 成功率，且训练过程更稳定，没有波动。
+  - **真机表现**: 平均成功率 80.0%，比 A2A (68.3%)、VITA (56.7%)、NoPrior (46.7%) 分别高出 11.7、23.3、33.3 个百分点。
+  - **消融结论**: Prior 的输入只用本体感觉效果最好；预测“均值+状态自适应方差”（对角高斯）效果最好，固定方差或全协方差都不如它；该 Prior 是即插即用的，也能直接提升 Diffusion-bridge 生成器的性能。
+
+---
+
+
+### 8. 🔥 [ACE-Ego-0: Unifying Egocentric Human and Robotic Data for VLA Pretraining] (ACE-Ego-0：统一第一人称人类与机器人数据用于 VLA 预训练)
+- **研究机构**: `ACE Robotics, 香港中文大学 (CUHK MMLab), 上海交通大学, 清华大学`
+- **Arxiv ID**: `2606.17200` | [点击跳转](https://arxiv.org/abs/2606.17200)
+
+**0. 论文标题**
+- **英文标题**: ACE-Ego-0: Unifying Egocentric Human and Robotic Data for VLA Pretraining
+- **中文标题**: ACE-Ego-0：统一第一人称人类与机器人数据用于 VLA 预训练
+- **研究机构**: ACE Robotics, 香港中文大学 (CUHK MMLab), 上海交通大学, 清华大学
+
+**1. 整体逻辑**
+- **研究任务**: VLA（视觉-语言-动作）模型的预训练，具体是如何将大规模的第一人称人类操作视频与机器人遥操作数据混合在一起进行联合训练。
+- **研究动机**: 机器人数据收集成本高、规模受限，而人类视频便宜且量大。但直接把人类视频数据拿来和机器人数据混训有三个硬伤：1）坐标系和物理形态不同（人手和机械臂）；2）视频帧率和机器人控制频率对不上；3）从视频里提取的人类动作标签（伪动作）噪声很大，直接和干净的机器人数据一起算 Loss 会把模型带偏。
+- **本质改动**: 提出了一套统一的数据对齐方法（将人类动作映射到相机坐标系、统一物理时间窗口），并改进了 Loss 计算机制（机器人数据算主 Loss，人类数据算带权重衰减的辅助 Loss，只采信位置信息，降低旋转和夹爪信息的权重）。
+- **技术溯源**: 基于通用的视觉语言模型 (VLM) 作为骨干网络，动作生成部分基于 Flow Matching（参考了 $\pi_0$ 的做法）。
+
+**2. 技术拆解**
+- **重点改进**: 1. 统一动作表示（解决空间、结构、时间维度的异构问题）；2. 可靠性感知的训练目标（解决人类伪动作噪声过大的问题）。
+- **架构细节**: 
+  - **输入**: 多视角图像、语言指令、形态 Token（机器人的 URDF 图编码或人类的代理 Embedding）。
+  - **空间对齐**: 把机器人和人类的动作都转换到“头部相机坐标系”下。人类没有物理末端执行器，就把手腕当原点，用手掌平面算朝向，用拇指到手掌的距离线性映射为夹爪开合度。
+  - **结构对齐**: 增加了一个形态编码器。把机器人的 URDF 结构和人类视频的特征编码成 Token，直接注入到动作解码阶段，与视觉骨干网络隔离，保持 VLM 的通用性。
+  - **时间对齐**: 抛弃按固定帧数切分 Action Chunk 的做法，改为按“物理时间”（如固定预测未来 N 秒）来切分，解决不同数据集控制频率不同的问题，并通过分桶采样策略减少 padding 开销。
+- **核心 Loss**: 
+  - **主 Loss (机器人)**: 标准的条件 Flow Matching Loss，使用干净的传感器记录数据进行训练，负责锚定主要的动作生成能力。
+  - **辅助 Loss (人类)**: 带可靠性权重的 Huber Loss。权重分两层：通道级先验（位置通道权重给 1.0，旋转和夹爪通道给低权重，因为视频里算不准）和步级平滑度（过滤掉突然跳变的噪声帧）。人类数据仅作为辅助监督，防止噪声污染主策略。
+
+**3. 实验结果**
+- **数据集和baseline**: 实验使用了自建的 6.0K+ 小时混合数据集（包含 4.53K 小时机器人/仿真数据 + 1.48K 小时人类视频伪动作数据）。Baseline 主要为不同数据混合策略、不同对齐组件的消融模型。
+- **评价指标**: 仿真环境中的任务成功率（Success Rate），以及真实机器人上的任务成功率。
+- **实验结果**: 
+  - 在 RoboCasa GR1 TableTop 仿真基准上达到 72.8% 的平均成功率（SOTA）。
+  - 在 RoboTwin 2.0 仿真的 Easy/Hard 设定下分别达到 91.12% 和 90.62% 的平均成功率。
+  - 在真实的双臂 ARX 机器人上，长时序、接触丰富的任务中表现出很强的泛化和迁移能力。
+  - 消融实验证实：形态条件注入、时间对齐切分、以及可靠性感知的人类辅助 Loss 都对最终性能有明确的正向贡献，且增加人类视频数据规模能带来持续的性能收益。
+
+---
+
+
+### 9. 🔥 [GeneralVLA-2: Geometry-Aware Reconstruction and Governed Memory for Robot Planning] (GeneralVLA-2：面向机器人规划的几何感知重建与受治理记忆)
+- **研究机构**: `北京大学 (Peking University), 中科院自动化所 (CASIA), AI2 Robotics`
+- **Arxiv ID**: `2606.17480` | [点击跳转](https://arxiv.org/abs/2606.17480)
+
+**0. 论文标题**
+- **英文标题**: GeneralVLA-2: Geometry-Aware Reconstruction and Governed Memory for Robot Planning
+- **中文标题**: GeneralVLA-2：面向机器人规划的几何感知重建与受治理记忆
+- **研究机构**: 北京大学 (Peking University), 中科院自动化所 (CASIA), AI2 Robotics
+
+**1. 整体逻辑**
+- **研究任务**: 基于视觉-语言-动作（VLA）系统的机器人 3D 轨迹规划。
+- **研究动机**: 发现前作 GeneralVLA 在规划时面临两个瓶颈：1) 单目 3D 重建（如 SAM3D）容易产生位姿歧义和背面几何幻觉，导致机器人抓取或避障失败；2) 原有的经验记忆库（KnowledgeBank）仅靠语义相似度检索，无法过滤低质量、冲突或过期的经验，导致规划不可靠（例如把失败经验当成功经验复用）。
+- **本质改动**: 1) 提出 GeoFuse-MV3D 重建分支，利用多视图几何先验和掩码验证来修正单目重建的几何幻觉，保守地融合几何信息；2) 将记忆库升级为“受治理”系统，为每条经验打上质量、置信度、生命周期和冲突等元数据标签，实现精准检索。
+- **技术溯源**: 基于作者前作 GeneralVLA 框架，底层重建基于 MV-SAM3D 和 VGGT（提供几何先验），规划推理基于 DeepSeek-R1。
+
+**2. 技术拆解**
+- **重点改进**: 
+  1. **GeoFuse-MV3D 重建分支**：不直接依赖外部 3D 估计，而是将其作为几何先验。通过输入视图掩码验证外部几何线索，应用软视觉包络（soft visual-hull）和逐轴几何微调。最后仅融合几何坐标而保留原始外观属性，防止颜色和透明度漂移。
+  2. **受治理的 KnowledgeBank**：将记忆从纯文本片段升级为结构化记录。包含查询、内容、类型（如操作提示、失败约束）、生命周期状态、置信度、验证器质量分数和冲突链接。检索时综合考虑文本相似度、置信度、成功奖励、新鲜度，并惩罚冲突和过期记录。
+- **架构细节**: 
+  - **输入输出**：输入为多视图校准的 RGB-D 图像、物体掩码、相机位姿（用于重建），以及语言指令、3D 场景点云、记忆库上下文（用于规划）；输出为 3D 末端执行器路径（包含 3D 航点和夹爪状态）。
+  - **模型结构**：分层架构。感知层用 SAM 提取 affordance；中间层 3DAgent 用 DeepSeek-R1 进行推理规划。GeoFuse-MV3D 包含两个几何源：Source A（带 VGGT 外部先验）和 Source B（无外部先验的逐轴补偿），两者通过加权混合输出最终的高斯中心坐标。
+- **核心 Loss**: 本文是一个 **training-free（免训练）** 的推理与检索框架，没有训练新的神经网络权重，因此无传统反向传播 Loss。重建部分复用 MV-SAM3D 的原有机制；记忆部分依赖 LLM 验证器打分和基于规则的检索打分公式（公式 10）来管理元数据。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - **重建评估**：GSO-30 数据集。Baseline: MV-SAM3D。
+  - **记忆模块评估（独立于机器人）**：Terminal-Bench 2.0, SWE-Bench Verified。Baseline: ReasoningBank。
+  - **机器人规划评估（仿真）**：RLBench 14 个任务。Baseline: VoxPoser, CAP, Hamster。
+  - **机器人规划评估（真机）**：4 个桌面操作任务。Baseline: CAP, RoboPoint。
+- **评价指标**: 
+  - 重建：Chamfer Distance (CD), PSNR, SSIM, LPIPS。
+  - 记忆/Agent：Success Rate (SR) / Resolve Rate, Average Steps (AS, 越低越好)。
+  - 机器人：Task success rate (任务成功率)。
+- **实验结果**: 
+  - **重建**：相比 MV-SAM3D，CD 和 LPIPS 分别降低 2.20% 和 2.02%，PSNR 和 SSIM 分别提高 2.36% 和 1.03%，几何形状更稳定。
+  - **记忆**：相比 ReasoningBank，Terminal-Bench SR 提升 4.53%，SWE-Bench 解决率提升 3.73%，同时平均步数 (AS) 分别减少 4.95% 和 5.65%，证明受治理记忆能提高经验复用效率。
+  - **机器人仿真**：在 RLBench 的 14 个任务中，GeneralVLA-2 成功完成了所有 14 个任务（Baseline 最多完成 10 个），在 10 个任务上超越 Baseline。消融实验证明受治理记忆对成功率提升显著。
+  - **真机**：在 4 个真机任务中全面超越 Baseline（例如 move_spray_bottle 任务成功率从 CAP 的 6.67% 提升至 63.33%）。
+
+---
+</script>
+            <script>
+                const rawMdElement = document.getElementById('raw-markdown');
+                if (rawMdElement) {
+                    document.getElementById('content').innerHTML = marked.parse(rawMdElement.textContent);
+                    // 渲染后触发公式排版
+                    if (window.MathJax && window.MathJax.typesetPromise) {
+                        window.MathJax.typesetPromise();
+                    }
+                }
+                function copySources() { /* 原代码保持不变 */ }
+            </script>
+        </body>
+        </html>
+        
