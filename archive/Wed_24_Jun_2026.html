@@ -1,0 +1,233 @@
+
+        <!DOCTYPE html>
+        <html lang="zh-CN">
+        <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>🤖 具身大模型简报 - Wed, 24 Jun 2026 (VLA: 5 of 41 entries)</title>
+            <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.2.0/github-markdown.min.css">
+            <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+            <script>
+                window.MathJax = {
+                    tex: { inlineMath: [['$', '$'], ['\\(', '\\)']], displayMath: [['$$', '$$'], ['\\[', '\\]']] },
+                    options: { skipHtmlTags: ['script', 'style', 'textarea'] }
+                };
+            </script>
+            <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+            <style>
+                .markdown-body { box-sizing: border-box; min-width: 200px; max-width: 980px; margin: 0 auto; padding: 45px; }
+                @media (max-width: 767px) { .markdown-body { padding: 15px; } }
+            </style>
+        </head>
+        <body class="markdown-body">
+            <a href='../index.html' style='margin-bottom:20px; display:block;'>← 返回主索引</a>
+            <h1>🤖 具身大模型简报 - Wed, 24 Jun 2026 (VLA: 5 of 41 entries)</h1>
+            <div id="content"></div>
+            
+            <script type="text/markdown" id="raw-markdown">### 1. 🔥 [InSight: Self-Guided Skill Acquisition via Steerable VLAs] (InSight：通过细粒度可控的 VLA 实现自引导技能获取)
+- **研究机构**: `Stanford University, Princeton University`
+- **Arxiv ID**: `2606.24884` | [点击跳转](https://arxiv.org/abs/2606.24884)
+
+**0. 论文标题**
+- **英文标题**: InSight: Self-Guided Skill Acquisition via Steerable VLAs
+- **中文标题**: InSight：通过细粒度可控的 VLA 实现自引导技能获取
+- **研究机构**: Stanford University, Princeton University
+
+**1. 整体逻辑**
+- **研究任务**: 让机器人在没有人类新示范的情况下，自主学会训练数据中没有的新操作技能（例如从只会“抓取”学会“倒水”或“拧瓶盖”）。
+- **研究动机**: 现有的 VLA（视觉-语言-动作）模型能力被训练数据锁死，遇到没见过的长文本指令就会失败。而强化学习在真机上试错成本太高。实际上，新技能往往是已有基础动作（primitives）的新组合，但现有 VLA 把动作和长指令耦合在一起，很难单独拆解、控制或扩展某个基础动作。
+- **本质改动**: 把 VLA 的控制粒度从“完整任务”下放到“基础动作”级别。先让 VLA 学会听指令做单个基础动作（实现细粒度可控），然后让大模型（VLM）当教练，自动发现机器人缺什么动作，指导机器人去试，成功了就把数据喂给 VLA 重新训练，实现技能库的自动扩充。
+- **技术溯源**: 基于主流 VLA 架构（使用 LoRA 进行微调），结合 VLM（用于任务规划、数据分割和成功判定）。
+
+**2. 技术拆解**
+- **重点改进**: 
+  1. **自动数据分割**：不用人工标注，自动把人类遥操作的长轨迹切分成带标签的基础动作片段，用来微调 VLA。
+  2. **VLM 引导的技能扩充闭环**：VLM 拆解新任务并对比当前 VLA 的“动作词表”找出缺失动作 -> VLM 给出底层控制参数让机器人尝试执行 -> VLM 判断任务是否成功 -> 把成功的数据加回 VLA 训练集进行微调。
+- **架构细节**: 
+  - **输入输出**：输入是图像和基础动作的语言标签（如“向左平移”、“向上抬”），输出是机器人动作和一个预测的“进度值（progress channel）”。
+  - **数据分割机制**：利用 VLM 生成动作计划，结合夹爪开合状态和末端位姿变化，自动对齐并切分轨迹。
+  - **缺失动作执行**：对于 VLA 不会的动作，VLM 直接输出单轴运动的轴向和幅度（如沿 Z 轴向下 5cm），由底层控制器直接执行。
+- **核心 Loss**: 
+  - **主 Loss**：标准的 VLA 动作预测 Loss（结合 LoRA 微调）。
+  - **辅助任务**：预测当前基础动作的执行进度（Progress channel，范围 0 到 1），用于在推理时自动判断动作是否完成并触发下一个动作。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - **仿真**：LIBERO 环境。Baseline：强化学习 SAC 算法。
+  - **真机**：UCF xArm 机械臂。Baseline：CaP-X（类似 Code-as-Policies 的零样本大模型组合方法）、$\pi_{0.5}$（仅用人类数据微调的 VLA 基线）。
+- **评价指标**: 任务端到端成功率、单个基础动作成功率、数据收集效率（试错次数和时间）、旧技能保留率。
+- **实验结果**: 
+  - **仿真表现**：从“抓取”学“翻转方块”，InSight 比 RL 样本效率高得多（RL 成功率为 0，InSight 达到 75%）。从“开抽屉”学“关抽屉”，在初始状态分布外（OOD）的情况下依然达到 100% 成功率。
+  - **真机新技能获取**：从“抓取”学“拧瓶盖”和“倒水”，InSight 端到端成功率分别为 92% 和 96%，远超 CaP-X（32% 和 16%）和 $\pi_{0.5}$（0%）。
+  - **长序列组合任务**：在“拧瓶盖+倒水”的 14 步长序列任务中，InSight 成功率 80%，CaP-X 仅 4%。
+  - **抗遗忘与泛化**：新技能加入后，原有的“抓取”技能成功率保持 100%，没有灾难性遗忘。此外，该方法还能处理非抓取任务，成功让机器人从“舀取”演示中学会了“清扫”。
+
+---
+
+
+### 2. 🔥 [World Value Model (摘要未提供完整标题，以核心命名代称)] (世界价值模型：面向混合质量数据学习的通用机器人价值模型)
+- **研究机构**: `摘要未提及`
+- **Arxiv ID**: `2606.24742` | [点击跳转](https://arxiv.org/abs/2606.24742)
+
+**0. 论文标题**
+- **英文标题**: World Value Model (摘要未提供完整标题，以核心命名代称)
+- **中文标题**: 世界价值模型：面向混合质量数据学习的通用机器人价值模型
+- **研究机构**: 摘要未提及
+
+**1. 整体逻辑**
+- **研究任务**: 训练一个通用的机器人价值模型（Value Model），用于评估大规模、质量参差不齐的机器人演示数据。通过计算任务进度来筛选高质量数据，从而指导机器人策略学习。
+- **研究动机**: 现有的价值模型大多基于视觉语言模型（VLM）构建。但 VLM 主要在静态图像或时间稀疏的视频上预训练，缺乏对连续时间序列的深度理解能力，导致其进行价值估计时不够准确。
+- **本质改动**: 将价值模型的主干网络从 VLM 替换为世界模型（World Model）。世界模型天然擅长时间建模和未来预测，具备价值估计所需的“瞻前顾后”能力。
+- **技术溯源**: 摘要未明确说明具体使用了哪个开源世界模型作为基座，仅明确弃用了传统的 VLM 骨干。
+
+**2. 技术拆解**
+- **重点改进**: 提出 World Value Model (WVM)。核心思路是利用世界模型的时间理解能力，使其既能根据历史上下文锚定当前状态，又能预测未来结果，从而输出准确的任务进度以评估数据质量。
+- **架构细节**: 摘要未提供具体的网络结构、输入输出维度、参数量等细节。从任务逻辑推断，输入为连续的视频观测序列，输出为当前帧的价值评估（任务完成进度）。
+- **核心 Loss**: 摘要未提及具体的损失函数或辅助任务设计。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - 数据集：使用了仅包含专家数据的常规标准基准；此外构建了 Suboptimal-Value-Bench，包含 800 条多具身（multi-embodiment）次优轨迹，并带有人工逐帧标注的高保真任务进度标签。
+  - Baseline：现有的基于 VLM 的机器人价值模型（摘要未列举具体对比模型的名称）。
+- **评价指标**: 价值排序相关性（Value-Order Correlation, VOC），用于衡量模型预测的价值分数与真实数据质量排序的一致性。
+- **实验结果**: 
+  - 在标准基准上，WVM 取得了 SOTA 的 VOC 结果。
+  - 在包含次优数据的新基准 Suboptimal-Value-Bench 上，WVM 依然保持 SOTA，证明其对专家和非专家数据均具备鲁棒性。
+  - 下游任务验证：在仿真和真机实验中，利用 WVM 的数据质量评估结果指导多种策略提取方法，均提升了机器人的操作性能。
+
+---
+
+
+### 3. 🔥 [G3VLA: Geometric inductive bias for Vision-Language-Action Models] (G3VLA：为视觉-语言-动作模型引入几何归纳偏置)
+- **研究机构**: `上海纽约大学 (NYU Shanghai)、穆罕默德·本·扎耶德人工智能大学 (MBZUAI)、丹麦技术大学 (DTU) 等`
+- **Arxiv ID**: `2606.24472` | [点击跳转](https://arxiv.org/abs/2606.24472)
+
+**0. 论文标题**
+- **英文标题**: G3VLA: Geometric inductive bias for Vision-Language-Action Models
+- **中文标题**: G3VLA：为视觉-语言-动作模型引入几何归纳偏置
+- **研究机构**: 上海纽约大学 (NYU Shanghai)、穆罕默德·本·扎耶德人工智能大学 (MBZUAI)、丹麦技术大学 (DTU) 等
+
+**1. 整体逻辑**
+- **研究任务**: 提升多相机设置下视觉-语言-动作（VLA）模型的机器人操作精度和跨视角泛化能力。
+- **研究动机**: 现有的VLA模型（如π0, OpenVLA）把多相机的图像当成独立的2D token处理，完全浪费了相机已经标定好的内外参几何信息。这导致模型在需要精确空间定位和跨视角推理的任务上表现受限，只能靠动作loss隐式去学几何。
+- **本质改动**: 在不改变预训练VLA骨干网络、动作空间和模仿学习目标的前提下，在视觉token进入动作模型前，插入一个“相机感知几何模块”注入3D几何结构；同时采用两阶段训练，先用几何教师模型蒸馏出点云特征来预热几何模块，再微调整体策略。
+- **技术溯源**: 基于 π0, π0.5, GR00T 1.5 等开源VLA基座模型；几何监督信号来自 π3X（视觉几何教师模型）或仿真中的真实深度图。
+
+**2. 技术拆解**
+- **重点改进**: 提出了相机感知几何模块（Camera-Aware Geometric Module），包含三个核心设计：
+  1. **基于内参的射线嵌入（Ray Embeddings）**：用相机内参的逆矩阵给每个2D patch token加上物理视线方向，解决不同相机下同一像素物理意义不同的问题。
+  2. **投影位置编码（PRoPE）**：在注意力机制中加入基于相机标定的跨视角几何偏置，让模型直接感知不同视角间的投影关系。
+  3. **双向跨视角融合**：让不同相机的token在送入动作模型前先交换几何上下文。
+- **架构细节**: 
+  - **输入输出**：输入多视角RGB图像、相机内外参、语言指令和本体状态；输出动作序列（action chunk）。
+  - **模型结构**：在冻结的预训练视觉编码器后接入几何模块，处理后的token直接送入原VLA的动作解码器。额外加了一个轻量级的point head用于辅助几何预测。
+  - **训练策略（两阶段）**：Stage 1 冻结骨干，用 π3X 或 GT 点图监督，只训练几何模块和辅助head；Stage 2 解冻所有参数，以动作loss为主、几何蒸馏loss为辅进行微调。推理时不需要深度传感器和辅助head。
+- **核心 Loss**: 主Loss是原VLA的动作预测Loss（如π0的flow-matching loss）；辅助Loss是几何蒸馏Loss（预测像素级的射线坐标和深度，与GT或π3X生成的点图计算L2距离），两者加权求和。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - **仿真数据集**：LIBERO（4个子集）, RoboCasa24, RoboTwin2.0。
+  - **真机数据集**：双臂UR5工作台（Pick-and-Place Test Tube, Pouring Nut），专门测试相机视角偏移的泛化。
+  - **Baseline**：原生的 π0, π0.5, GR00T 1.5。
+- **评价指标**: 任务成功率（Success Rate），重点对比同分布（ID）和分布外（OOD，即未见过的相机视角）的表现。
+- **实验结果**: 
+  - **仿真表现**：在 π0 上，LIBERO 平均成功率从 84.6% 提升至 88.1%（GT监督）或 87.0%（π3X监督），在空间（Spatial）和物体（Object）敏感任务上提升最明显（分别+4.0% 和 +5.0%）。在 RoboCasa24 和 RoboTwin2.0 上也有稳定提升。
+  - **基座泛化**：在 π0.5 上，LIBERO 平均成功率从 95.9% 提升至 97.0%，证明对强基座也有效。但在 GR00T 1.5 上提升不明显，作者分析是因为其双塔架构中几何token需要经过额外的交叉注意力瓶颈，削弱了信号。
+  - **真机表现**：G3VLA 在 OOD（新相机视角）下的泛化能力提升显著。例如 Pouring 任务整体成功率从 82.5-85.0% 提升至 90.0-92.5%，证明注入的几何先验能有效抵抗视角变化带来的干扰。
+
+---
+
+
+### 4. 🔥 [Supervise What Survives: Geometry-Guided VLA Adaptation from Synthetic Robot Videos] (监督留存之物：基于几何引导的合成机器人视频VLA适配)
+- **研究机构**: `新加坡国立大学 (Show Lab, National University of Singapore)`
+- **Arxiv ID**: `2606.24448` | [点击跳转](https://arxiv.org/abs/2606.24448)
+
+**0. 论文标题**
+- **英文标题**: Supervise What Survives: Geometry-Guided VLA Adaptation from Synthetic Robot Videos
+- **中文标题**: 监督留存之物：基于几何引导的合成机器人视频VLA适配
+- **研究机构**: 新加坡国立大学 (Show Lab, National University of Singapore)
+
+**1. 整体逻辑**
+- **研究任务**: 利用人类视频生成的合成机器人视频，来微调视觉-语言-动作（VLA）模型，缓解真实遥操作数据不足的问题。
+- **研究动机**: 现有方法把生成的视频当成真实数据，用逆动力学等方法从生成像素里“猜”伪动作（pseudo-actions）去训练动作头。但作者指出这存在根本错位：视频生成只能保留几何信息（空间轨迹），会丢失物理控制信号。强行用带有噪声的伪动作去训练动作头，反而会拖累策略性能。
+- **本质改动**: 提出“非对称保留原则”，即合成视频只用来监督视觉感知，动作控制只靠真实数据。具体做法是从源人类视频中提取未来的2D末端轨迹（waypoints），用来训练VLA的视觉骨干，而动作头只在真实数据上微调。
+- **技术溯源**: 基于 OpenVLA-OFT（底层为 Llama-2 7B），视频生成模型使用的是 Wan 2.2。
+
+**2. 技术拆解**
+- **重点改进**: 
+  1. 改变合成数据的使用方式：把合成视频的监督信号从“动作头”转移到“视觉骨干”。
+  2. 设计两阶段训练（GRA）：第一阶段用合成视频和几何waypoint预训练视觉骨干；第二阶段用真实数据微调动作头，同时保留waypoint loss作为空间表征锚点，防止视觉骨干在学动作时遗忘几何特征。
+- **架构细节**: 
+  - **输入输出**：Stage 1 输入生成的机器人帧和从人类视频提取的2D waypoint；Stage 2 输入真实机器人帧、语言指令、真实动作和真实waypoint。动作头输出24步的7维相对动作（delta action）。
+  - **模型结构**：在 OpenVLA-OFT 的视觉骨干后接一个辅助的3层MLP头（$h_{2D}$），用于预测未来8步的2D末端执行器坐标。
+  - **Waypoint提取**：人类视频 -> DINO/SAM2检测手 -> HaMeR估计3D手部关键点 -> 运动学重定向到机器人 -> MuJoCo仿真 -> 相机投影到2D图像坐标。
+- **核心 Loss**: 
+  - **Stage 1**: 合成视频帧预测2D waypoint的MSE Loss（$\mathcal{L}_{2D}^s$）。
+  - **Stage 2**: 真实数据的动作L1 Loss（$\mathcal{L}_{act}$） + 真实数据的waypoint MSE Loss（$\mathcal{L}_{2D}^r$，作为空间锚点，权重设为0.5）。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - **数据集**：每个任务25条真实遥操作轨迹（主实验），75条合成视频（Wan 2.2生成）。上限参考为100条真实轨迹。
+  - **Baseline**: Real-only（仅25条真实数据）、Real-only full（100条真实数据）、DreamGen-style（逆动力学恢复伪动作）、MimicDreamer-style（几何重定向恢复伪动作）。
+- **评价指标**: 真实机器人上的闭环任务成功率（3个桌面抓取放置任务：方块、杯子、芒果，各30次尝试）。辅助指标包括视觉骨干的空间探测误差和动作头的单步预测误差。
+- **实验结果**: 
+  - 在相同数据预算下（25真实+75合成），GRA平均成功率达68.9%，比仅用真实数据的Real-only（61.1%）高7.8%。
+  - 两个伪动作baseline表现反而比Real-only差（分别低12.2%和6.7%），证实了伪动作会引入噪声破坏模型。
+  - GRA将100条真实数据上限（75.6%）的差距从14.5%缩小到6.7%，相当于用1/4的真实数据达到了接近的效果。
+  - 消融实验表明：Stage 1预训练、Stage 2的锚点Loss、以及使用waypoint而非伪动作，三者缺一不可。
+
+---
+
+
+### 5. 🔥 [SPACE: Enabling Learning from Cross-Robot Data Toward Generalist Policies] (SPACE：面向通用策略的跨机器人数据学习)
+- **研究机构**: `KAIST, Config, Yonsei University`
+- **Arxiv ID**: `2606.24049` | [点击跳转](https://arxiv.org/abs/2606.24049)
+
+**0. 论文标题**
+- **英文标题**: SPACE: Enabling Learning from Cross-Robot Data Toward Generalist Policies
+- **中文标题**: SPACE：面向通用策略的跨机器人数据学习
+- **研究机构**: KAIST, Config, Yonsei University
+
+**1. 整体逻辑**
+- **研究任务**: 机器人模仿学习中的跨机器人（跨不同机械臂型号、跨同型号不同硬件个体）数据混合训练与策略部署。
+- **研究动机**: 在收集机器人数据时，记录的“控制指令”是绑定在特定机器人的底层控制器和动力学特性上的。由于不同机器人（甚至同型号的不同个体）存在硬件磨损、制造公差等动力学差异，相同的控制指令在不同机器人上产生的实际运动是不一样的。这导致跨机器人的数据直接混合训练时会产生噪声，且在一个机器人上训练的策略无法直接部署到另一个机器人上。
+- **本质改动**: 把策略的输出从“底层控制指令”改为“末端执行器的实际空间位移（笛卡尔状态增量）”，让策略只关注几何运动；在部署时，加一个轻量的线性映射层（Action Adapter）把位移转回具体机器人的控制指令，并支持在线实时更新以应对动力学变化。
+- **技术溯源**: 基于 $\pi_{0.5}$ (一个 SOTA 的视觉-语言-动作 VLA 模型) 作为策略基座进行微调。
+
+**2. 技术拆解**
+- **重点改进**: 解耦“策略预测”和“底层控制”。策略网络不再猜测底层控制器需要的指令，而是直接预测与机器人动力学无关的末端几何位移；部署阶段通过 Action Adapter 来弥补预测位移和实际控制指令之间的动力学差异。
+- **架构细节**: 
+  - **输入输出**: 策略输入为末端位姿、相机图像和语言指令，输出为笛卡尔状态增量（$\Delta p$，即下一帧末端位姿减去当前帧位姿）。
+  - **Action Adapter**: 一个简单的线性模型 $u = W \Delta p + b$。部署前，用随机动作控制目标机器人跑几十秒采集校准数据，用最小二乘法拟合出初始的权重 $W$ 和偏置 $b$。
+- **核心 Loss**: 
+  - **策略训练 Loss**: 标准的行为克隆 Loss，监督策略网络预测准确的笛卡尔状态增量 $\Delta p$。
+  - **Adapter 训练/更新 Loss**: 最小二乘 Loss。在部署 rollout 时，使用 LMS（最小均方）算法，根据每步实际观测到的位移误差，在线计算梯度并实时更新 $W$ 和 $b$，从而动态补偿负载变化或控制频率变化带来的动力学偏移。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - **数据集**: Berkeley UR5 数据集、FastUMI (人手夹爪数据)、DROID (包含多个 FR3 硬件个体的大规模数据集)。
+  - **Baseline**: 直接预测底层控制指令的策略（Control command policy），以及仅用单一目标机器人数据训练的策略。
+- **评价指标**: 真实机器人上的任务成功率（Success rate），以及轨迹跟踪误差、任务完成时间。
+- **实验结果**: 
+  - **跨具身学习**: UR5 和 Franka (FR3) 混合训练时，SPACE 比 Baseline 平均成功率高 30%；UR5 数据零样本迁移到 FR3，成功率从 0% 提升到 92%；混入人手 (UMI) 数据联合训练，比 Baseline 高 50%。
+  - **跨硬件学习**: 在 DROID 多硬件数据集上训练，SPACE 比 Baseline 成功率高 80% 以上。在未见过的同型号新硬件上测试，Baseline 成功率从 98% 暴跌至 18%，SPACE 仍保持在 84%。
+  - **抗动力学干扰**: 
+    - 控制频率翻倍（15Hz 提到 30Hz）：Baseline 成功率下降 48%，SPACE 成功率不掉，且任务完成时间从 12.4s 缩短到 8.1s。
+    - 抓取物增重（90g 增加到 530g）：Baseline 直接失败（0%），SPACE 通过在线更新 Adapter 的偏置（自动补偿重力）保持 92% 的成功率。
+
+---
+</script>
+            <script>
+                const rawMdElement = document.getElementById('raw-markdown');
+                if (rawMdElement) {
+                    document.getElementById('content').innerHTML = marked.parse(rawMdElement.textContent);
+                    // 渲染后触发公式排版
+                    if (window.MathJax && window.MathJax.typesetPromise) {
+                        window.MathJax.typesetPromise();
+                    }
+                }
+                function copySources() { /* 原代码保持不变 */ }
+            </script>
+        </body>
+        </html>
+        
