@@ -1,0 +1,339 @@
+
+        <!DOCTYPE html>
+        <html lang="zh-CN">
+        <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>🤖 具身大模型简报 - Thu, 25 Jun 2026 (VLA: 8 of 75 entries)</title>
+            <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.2.0/github-markdown.min.css">
+            <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+            <script>
+                window.MathJax = {
+                    tex: { inlineMath: [['$', '$'], ['\\(', '\\)']], displayMath: [['$$', '$$'], ['\\[', '\\]']] },
+                    options: { skipHtmlTags: ['script', 'style', 'textarea'] }
+                };
+            </script>
+            <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+            <style>
+                .markdown-body { box-sizing: border-box; min-width: 200px; max-width: 980px; margin: 0 auto; padding: 45px; }
+                @media (max-width: 767px) { .markdown-body { padding: 15px; } }
+            </style>
+        </head>
+        <body class="markdown-body">
+            <a href='../index.html' style='margin-bottom:20px; display:block;'>← 返回主索引</a>
+            <h1>🤖 具身大模型简报 - Thu, 25 Jun 2026 (VLA: 8 of 75 entries)</h1>
+            <div id="content"></div>
+            
+            <script type="text/markdown" id="raw-markdown">### 1. 🔥 [Learning Action Priors for Cross-embodiment Robot Manipulation] (学习动作先验用于跨具身机器人操作)
+- **研究机构**: `中国人民大学、北卡罗来纳大学教堂山分校、多伦多大学、亚马逊`
+- **Arxiv ID**: `2606.26095` | [点击跳转](https://arxiv.org/abs/2606.26095)
+
+**0. 论文标题**
+- **英文标题**: Learning Action Priors for Cross-embodiment Robot Manipulation
+- **中文标题**: 学习动作先验用于跨具身机器人操作
+- **研究机构**: 中国人民大学、北卡罗来纳大学教堂山分校、多伦多大学、亚马逊
+
+**1. 整体逻辑**
+- **研究任务**: 跨具身（Cross-embodiment）场景下的视觉-语言-动作（VLA）模型训练与机器人操作。
+- **研究动机**: 现有的 VLA 模型通常直接拿预训练的 VLM 加上动作头进行联合训练。VLM 继承了强大的视觉和语言先验，但动作头往往是从零开始学习物理运动的。这导致在训练早期，模型需要同时学习动作分布和跨模态对齐，梯度不稳定、收敛慢。在跨具身场景下（不同机器人的动作空间差异很大），这个问题会被进一步放大。
+- **本质改动**: 提出一个两阶段训练框架。在 VLA 进行跨模态对齐之前，先让动作模块在纯动作轨迹数据上预训练，学习“动作先验”（即先学会“怎么动”），然后再将这个先验迁移到 VLA 训练中结合视觉和语言进行联合优化。
+- **技术溯源**: 基于通用的视觉语言大模型（VLM）作为骨干网络；动作生成模块基于 Flow-matching（流匹配）架构（参考了 $\pi_0$ 等工作）；跨具身的输入处理借鉴了 X-VLA 的 soft-prompt 设定。
+
+**2. 技术拆解**
+- **重点改进**: 引入了独立的“动作先验”学习阶段。设计了一个基于 Transformer 的 Encoder-Decoder 动作模块。Encoder 负责把一段动作序列压缩成一个全局隐变量（latent embedding），Decoder 基于 Flow-matching 从这个隐变量重建动作序列。
+- **架构细节**: 
+  - **Stage 1（动作先验学习）**: 输入只有本体感觉状态和动作序列（加上区分不同机器人的 soft-prompt），完全不输入图像和文本。Encoder 输出一个动作隐变量 $z$，Decoder 用 Flow-matching 目标重建动作。
+  - **Stage 2（VLA 联合训练）**: VLM 处理图像、文本和一个可学习的 query token，输出预测的隐变量 $z'$。Decoder 直接复用 Stage 1 训练好的权重作为 VLA 的动作头。
+  - **历史压缩机制**: Stage 1 训练好的 Encoder 还可以直接拿来用，把过去的状态-动作历史压缩成一个单独的 token，喂给 VLM 提供时序上下文，不需要增加额外的网络参数。
+- **核心 Loss**: 
+  - **Stage 1**: 动作重建 Loss（Flow-matching 的速度场预测 MSE Loss）。
+  - **Stage 2**: 主 Loss 是 VLA 的动作预测 Loss（Flow-matching Loss）。辅助 Loss 包含两部分：一是隐变量对齐 Loss（让 VLM 预测的 $z'$ 逼近 Encoder 提取的真实 $z$，对 $z$ 做了 stop-gradient 防止梯度回传）；二是保持 Encoder-Decoder 分支的重建 Loss。为了防止辅助 Loss 在后期限制 VLM 的表达能力，对齐 Loss 和重建 Loss 的权重会随训练步数线性衰减至 0（Early-step Distillation 策略）。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - **数据集**: 包含 LIBERO（仿真）、RoboCasa（仿真）以及真实世界的 Franka 机械臂平台，共 13 个跨具身任务。
+  - **Baseline**: 没有动作先验、从头开始联合训练的 VLA 模型（From-scratch VLA），以及相关的跨具身基线方法。
+- **评价指标**: 任务成功率（Success Rate）、收敛速度、长尾任务表现、动作轨迹平滑度。
+- **实验结果**: 
+  - 相比从头训练的 VLA，该方法收敛速度更快，整体成功率更高。
+  - 在数据稀缺的真实世界长尾任务上提升尤为明显，生成的动作轨迹更平滑、稳定，避免了早期训练时的动作抖动。
+  - 数据 Scaling 效果好：在 Stage 1 增加无条件的纯动作数据量，能直接提升下游 VLA 的性能。
+  - 利用 Encoder 压缩历史轨迹带来的时序上下文，在长时序任务中带来了显著的性能收益。
+
+---
+
+
+### 2. 🔥 [In-Context World Modeling (注：摘要未提供完整标题，以核心概念代指)] (上下文世界建模)
+- **研究机构**: `摘要未提及`
+- **Arxiv ID**: `2606.26025` | [点击跳转](https://arxiv.org/abs/2606.26025)
+
+**0. 论文标题**
+- **英文标题**: In-Context World Modeling (注：摘要未提供完整标题，以核心概念代指)
+- **中文标题**: 上下文世界建模
+- **研究机构**: 摘要未提及
+
+**1. 整体逻辑**
+- **研究任务**: 提升 VLA（视觉-语言-动作）模型在未知环境配置（如新的相机视角、新的机器人形态）下的泛化与适应能力。
+- **研究动机**: 现有 VLA 模型通常只依赖当前观测和语言指令，忽略了底层系统配置的变化，默认执行上下文是固定的。一旦相机视角或机器人形态改变，模型就会失效，必须依赖大量新数据进行微调。
+- **本质改动**: 将系统辨识（System Identification）转化为上下文适应（In-Context Adaptation）问题。让机器人在执行具体任务前，先通过一小段自己生成的、与任务无关的交互历史，自主推断系统变量，从而理解当前系统是如何运作的。
+- **技术溯源**: 基于 VLA（Vision-Language-Action）模型架构。
+
+**2. 技术拆解**
+- **重点改进**: 提出 In-Context World Modeling (ICWM) 框架。传统的上下文学习（ICL）是用示范数据告诉模型“做什么任务”，而 ICWM 是利用上下文窗口让模型理解“系统怎么运作”。模型在处理交互历史后，隐式捕获当前系统的世界动态，实现无需更新参数的自适应。
+- **架构细节**: 输入端在原有的“当前观测”和“语言指令”基础上，增加了一段“自生成的任务无关交互历史”并放入上下文窗口（Context Window）。模型先处理这段历史以建立对当前系统动态的认知，然后再输出具体任务的动作。
+- **核心 Loss**: 摘要未详细说明具体 Loss 构成。基于框架原理，主 Loss 应为标准的动作预测 Loss（如行为克隆 Loss），模型通过上下文窗口隐式学习世界动态，摘要中未提及额外的显式辅助任务 Loss（如视频重建）。
+
+**3. 实验结果**
+- **数据集和baseline**: 实验在仿真环境和真实机器人平台上进行。对比的 Baseline 是标准的 VLA 模型。
+- **评价指标**: 模型在全新相机视角（novel camera viewpoints）下的任务执行表现（泛化成功率）。
+- **实验结果**: 在仿真和真机实验中，面对新的相机视角，ICWM 的表现显著优于标准 VLA baseline，验证了其在不更新模型参数的情况下，对新环境配置的有效适应能力。
+
+---
+
+
+### 3. 🔥 [Action ControlNet: A Lightweight Delay-Aware Adapter for Smooth Asynchronous Control in Vision-Language-Action Models] (Action ControlNet：一种用于VLA模型平滑异步控制的轻量级延迟感知适配器)
+- **研究机构**: `北京大学 (Peking University)`
+- **Arxiv ID**: `2606.25985` | [点击跳转](https://arxiv.org/abs/2606.25985)
+
+**0. 论文标题**
+- **英文标题**: Action ControlNet: A Lightweight Delay-Aware Adapter for Smooth Asynchronous Control in Vision-Language-Action Models
+- **中文标题**: Action ControlNet：一种用于VLA模型平滑异步控制的轻量级延迟感知适配器
+- **研究机构**: 北京大学 (Peking University)
+
+**1. 整体逻辑**
+- **研究任务**: 解决VLA（视觉-语言-动作）模型在异步推理部署时，动作块（action chunk）拼接导致的动作不连续和抖动问题，实现平滑的高频控制。
+- **研究动机**: VLA模型推理慢，同步执行会导致机器人走走停停。采用异步执行（边推理边执行）能消除停顿，但因为推理有延迟，新动作块是基于“过时”的观测生成的。直接拼接前后动作块会产生边界不连续和抖动，在接触类任务中容易导致失败。现有解法要么需要全量重训（成本高），要么依赖特定架构的运行时逻辑。
+- **本质改动**: 将异步延迟导致的误差视为“局部边界条件”问题，而不是全局任务理解失败。提出 ACNet，提取推理延迟期间机器人已经执行的动作片段（delay action），将其编码后作为残差条件注入到冻结的动作头中，进行局部边界修正。
+- **技术溯源**: 感知-语言骨干网络基于轻量级的 Evo-1，动作头采用 Flow Matching（流匹配）生成式架构。对比的 Baseline 主要基于 $\pi_0$ 架构。
+
+**2. 技术拆解**
+- **重点改进**: 设计了一个轻量级的旁路网络（ACNet），专门处理延迟动作的编码和注入。冻结预训练的感知-语言骨干网络，只训练动作头级别的残差适配器，避免了全量微调。
+- **架构细节**: 
+  - **输入**: 当前观测、语言指令，以及延迟动作（已执行的动作后缀 + 可学习的 padding token 补齐到 chunk 长度）。
+  - **结构**: 用一个轻量级 Transformer 编码器处理延迟动作，经过时序池化得到条件向量。然后将该向量通过投影层作为残差（Residual）注入到动作头（Action Expert）的特定层。消融实验证明，注入到动作头的最后一层效果最好，因为 late layers 对最终输出的边界修正最直接。
+  - **规模**: 骨干网络完全冻结，只训练约 20% 的参数（主要是 ACNet 旁路和末端池化层）。
+- **核心 Loss**: 
+  - **主 Loss**: Flow Matching 的预测损失（计算预测速度与真实速度的 MSE）。
+  - **辅助 Loss**: 边界一致性损失（Boundary-consistency loss），用 L2 距离约束新预测 chunk 的第一个可执行动作与上一个 chunk 的最后一个已执行动作平滑过渡。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - **数据集/环境**: Kinetix 仿真, Meta-World MT50 仿真, 真实世界 SO-ARM101 机械臂平台。
+  - **Baseline**: Naïve Async（直接拼接）, RTC（运行时动作修复）, Training-RTC（带延迟条件的全量微调）。
+- **评价指标**: 任务成功率（Success rate），可训练参数比例（Params %），端到端推理延迟（Latency），控制频率（Freq.），以及动作平滑度（Jerk，加加速度）。
+- **实验结果**: 
+  - **成功率与参数效率**: 在 Kinetix 和 Meta-World 上，ACNet 的平均成功率（0.79 / 0.74）与全量微调的 Training-RTC（0.80 / 0.74）基本持平，显著优于 Naïve Async 和 RTC。但 ACNet 只训练了约 20% 的参数，而 Training-RTC 需要 100%。
+  - **推理速度**: 在 Meta-World 上，ACNet 延迟 91ms (11.0 Hz)，优于 RTC (159ms) 和 Training-RTC (134ms)。（注：作者指出这部分速度优势主要来自于底层使用了更轻量的 Evo-1 骨干，而非 ACNet 旁路本身算得快）。
+  - **平滑度**: Jerk 分析表明，ACNet 在 chunk 切换边界的抖动明显小于 Naïve Async，轨迹更平滑。
+  - **真机实验**: 在 SO-ARM101 上，ACNet 两个任务 20/20 成功率（100%），Naïve Async 为 17/20（85%），真机动作过渡更稳定，接触更平滑。
+
+---
+
+
+### 4. 🔥 [ROAD-VLA: Robust Online Adaptation via Self-Distillation for Vision-Language-Action Models] (ROAD-VLA：通过自蒸馏实现视觉-语言-动作模型的鲁棒在线自适应)
+- **研究机构**: `新南威尔士大学 (UNSW) 等`
+- **Arxiv ID**: `2606.25800` | [点击跳转](https://arxiv.org/abs/2606.25800)
+
+**0. 论文标题**
+- **英文标题**: ROAD-VLA: Robust Online Adaptation via Self-Distillation for Vision-Language-Action Models
+- **中文标题**: ROAD-VLA：通过自蒸馏实现视觉-语言-动作模型的鲁棒在线自适应
+- **研究机构**: 新南威尔士大学 (UNSW) 等
+
+**1. 整体逻辑**
+- **研究任务**: VLA（视觉-语言-动作）模型在部署后的在线自适应（Online Adaptation），解决机器人在真实环境中遇到分布偏移（如光照变化、物体位置改变、执行误差）时，如何利用稀疏奖励进行微调的问题。
+- **研究动机**: VLA模型是自回归生成动作 token 的，传统 RL 方法（如 PPO）只用一个标量优势（Advantage）去加权整个动作序列，导致监督信号太稀疏、方差大。作者一开始尝试用文本提示（Text-guided）做自蒸馏来提供密集信号，但发现 VLA 微调后很难利用文本提示去推理底层动作，文本和底层动作之间存在模态鸿沟，效果不行。
+- **本质改动**: 提出一种基于优势引导的自蒸馏方法。不用外部大模型或文本提示，而是直接用 RL 算出来的优势值去扰动当前策略的动作 token logits，构建一个“近端教师”（proximal teacher）。把稀疏的标量奖励转化成了密集的、每个动作 token 级别的监督信号。
+- **技术溯源**: 基于 OpenVLA-7B。
+
+**2. 技术拆解**
+- **重点改进**: 
+  1. **优势混合与符号门控**：融合当前策略算出的内在优势和冻结 Critic 算出的参考优势。加入了一个符号门控机制，只有当两者正负号一致时才进行混合，防止 Critic 估计不准把策略带偏。
+  2. **Logit 扰动构建教师**：把混合后的优势值标准化后，直接加到学生采样的那个动作 token 的 logit 上。这在数学上等价于带 KL 正则化的局部策略改进问题的闭式解。
+  3. **密集蒸馏**：用这个扰动后的教师分布作为目标，让学生模型去拟合，从而在不增加外部教师模型的情况下，实现 token 级别的密集监督。
+- **架构细节**: 
+  - **输入**：视觉特征（由 SigLIP 和 DINOv2 融合编码）+ 语言指令 + 历史动作观测。
+  - **输出**：自回归生成 7 个离散动作 token（每个动作维度被离散化为 256 个 bin）。
+  - **模型规模**：7B 参数。
+- **核心 Loss**: 
+  - **主 Loss**：Token 级别的 Advantage-Guided Distillation Loss（计算教师分布和学生分布之间的 Forward KL 散度）。
+  - **辅助任务**：无。纯靠环境交互产生的 on-policy 数据和 advantage 信号进行蒸馏。
+
+**3. 实验结果**
+- **数据集和baseline**: 在 7 个机器人操作环境中进行测试。对比的 baseline 主要是 PPO。测试场景包括分布内（ID）和三种分布外（OOD）偏移：视觉鲁棒性（背景/纹理/噪声变化）、组合推理（存在干扰物）、执行鲁棒性（几何偏移/中途状态扰动）。
+- **评价指标**: 任务成功率（Success Rate）。
+- **实验结果**: 在几乎所有的 ID 和 OOD 设置下，ROAD-VLA 的成功率都显著高于 PPO baseline。实验证明，把标量优势转化为 token 级别的密集监督，能让策略在分布偏移下更鲁棒，在线自适应的效果明显优于传统的策略梯度方法。
+
+---
+
+
+### 5. 🔥 [Reflective VLA: In-Context Action Consequences Make VLAs Generalize] (反思 VLA：通过动作结果的上下文学习提升 VLA 泛化能力)
+- **研究机构**: `International Digital Economy Academy (IDEA) / 福田实验室 / Visincept`
+- **Arxiv ID**: `2606.25215` | [点击跳转](https://arxiv.org/abs/2606.25215)
+
+**0. 论文标题**
+- **英文标题**: Reflective VLA: In-Context Action Consequences Make VLAs Generalize
+- **中文标题**: 反思 VLA：通过动作结果的上下文学习提升 VLA 泛化能力
+- **研究机构**: International Digital Economy Academy (IDEA) / 福田实验室 / Visincept
+
+**1. 整体逻辑**
+- **研究任务**: 提升视觉-语言-动作（VLA）模型在部署环境物理参数发生变化（如相机位姿偏移、机器人标定误差）时的跨环境泛化能力。
+- **研究动机**: 现有的 VLA 大多是“反应式”的，只根据当前单帧观察预测动作。这导致模型无法从单帧图像中推断出相机外参、标定误差等隐式物理参数，在部署环境变化时容易失效。现有的带历史记忆的 VLA 只是简单堆叠历史帧，没有把“执行的动作”和“动作导致的环境变化”显式绑定，无法有效利用交互反馈来校准这些物理参数。
+- **本质改动**: 将跨环境泛化转化为基于“观察-动作-结果”（Observation-Action-Consequence）三元组的上下文学习（ICL）问题。让模型在决策时，不仅看当前帧，还看过去几步“执行了什么动作”以及“执行后场景发生了什么变化”，通过这种因果反馈来隐式推断当前环境的物理参数，从而修正动作预测。
+- **技术溯源**: 基于 $\pi_{0.5}$ 架构（Dual-system VLA，即 VLM 前缀 + Flow-matching 连续动作专家）进行复现和改造。
+
+**2. 技术拆解**
+- **重点改进**: 
+  1. **构建三元组上下文**：将历史交互记录为 $(O_t, A_t, O_{t+C})$，其中 $O_{t+C}$ 是执行动作块 $A_t$ 后的观察，显式绑定动作与结果，提供环境物理参数的诊断信号。
+  2. **共享注意力的双系统架构**：所有模态（图像、本体感觉、历史动作）统一映射到 VLM 的 token 空间。Flow-matching 动作专家通过共享注意力机制，直接且密集地 attend 到完整的历史三元组和当前观察，避免信息传递瓶颈。
+  3. **块因果（Block-causal）训练与推理**：训练时，将多个时间步打包成一个序列，使用块因果掩码在一次前向传播中同时监督多个目标帧；推理时利用 KV Cache 复用历史 prefix，保证实时控制速度。
+- **架构细节**: 
+  - **输入**：语言指令、历史三元组、当前观察。历史动作通过线性层映射为 8 个 VLM token。每个三元组都自带语言指令前缀，形成独立的 $(\mathcal{L}, O, A, O')$ 结构。
+  - **结构**：VLM 处理多模态 prefix，后缀接一个 Flow-matching 动作专家。动作专家在每一层都与 VLM prefix 共享注意力（Shared attention），直接读取历史动作和结果观察。
+  - **规模**：基于 $\pi_{0.5}$ 的参数量级（VLM 基座 + 动作专家）。
+- **核心 Loss**: 
+  - 主 Loss 仅为 Flow-matching 动作预测 Loss（$\mathcal{L}_{act}$）。
+  - 无额外的视频重建或对比辅助 Loss。完全依赖动作预测 Loss，但通过块因果掩码实现了多帧密集监督（Dense multi-frame supervision），在一次前向传播中计算多个历史帧的动作 Loss。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - **数据集**：LIBERO（标准分布内）, SimplerEnv-Bridge（跨仿真器）, LIBERO-Plus（分布外常规扰动）, LIBERO-Plus-Hard（作者提出的困难扰动，专门针对相机外参和机器人标定偏移）。
+  - **Baseline**：复现的反应式 $\pi_{0.5}$（主要对比对象），以及 OpenVLA, 4D-VLA, MemoryVLA, $\pi_0$ 等。
+- **评价指标**: 任务成功率（Success rate, %）。
+- **实验结果**: 
+  - **分布内性能**：保持甚至略微提升。在 LIBERO 上比反应式 $\pi_{0.5}$ 高 0.7%（97.6 vs 96.9），在 SimplerEnv 上高 5.3%（78.2 vs 72.9）。
+  - **分布外扰动（LIBERO-Plus）**：平均成功率提升 5.4%（87.7 vs 82.3）。
+  - **困难扰动（LIBERO-Plus-Hard）**：在相机偏移（Camera†）和机器人标定偏移（Rob. Calib†）任务上，平均成功率提升 4.2%（68.8 vs 64.6），证明了模型确实利用交互反馈校准了物理参数。
+  - **消融实验**：对比了只有历史观察（O）、历史观察+动作（O,A）和完整三元组（O,A,O'）。结果显示，只有加入“动作结果（O'）”才能带来显著的泛化提升，证明性能增益来自于因果反馈，而不仅仅是增加了上下文长度。
+
+---
+
+
+### 6. 🔥 [Memory Retrieval in Visuomotor Policies for Long-Horizon Robot Control] (视觉运动策略中用于长时程机器人控制的记忆检索)
+- **研究机构**: `The University of Texas at Austin (UT Austin)`
+- **Arxiv ID**: `2606.25136` | [点击跳转](https://arxiv.org/abs/2606.25136)
+
+**0. 论文标题**
+- **英文标题**: Memory Retrieval in Visuomotor Policies for Long-Horizon Robot Control
+- **中文标题**: 视觉运动策略中用于长时程机器人控制的记忆检索
+- **研究机构**: The University of Texas at Austin (UT Austin)
+
+**1. 整体逻辑**
+- **研究任务**: 长时程、部分可观测环境下的机器人模仿学习。机器人需要记住过去发生的事情（如物品位置、任务进度等），来完成长达数分钟的复杂操作任务。
+- **研究动机**: 直接把带长上下文注意力的Transformer用在离线模仿学习上存在两个问题：一是模型容易学到历史画面和当前动作之间的“虚假相关性”（把无关背景当成了动作依据）；二是在实际闭环控制时，微小的预测误差会随时间不断累积，导致模型漂移和级联失败。
+- **本质改动**: 提出HALO模型，为视觉运动策略引入基于注意力的记忆检索机制。通过“视频问答（VQA）”辅助任务引导模型检索正确的历史信息（解决虚假相关），并使用“Top-k稀疏注意力”限制每次检索的历史数量（解决误差累积）。
+- **技术溯源**: 基于Transformer架构，利用视觉语言模型（VLM）生成问答数据提供先验知识，结合标准的模仿学习框架。
+
+**2. 技术拆解**
+- **重点改进**: 
+  1. 引入VQA辅助任务引导检索：用VLM根据历史轨迹自动生成问答对（如“刚才把杯子放哪了？”）。训练时让模型一边预测动作，一边回答关于历史的问题，促使注意力机制准确检索任务相关的历史信息。
+  2. Top-k 稀疏注意力：计算注意力时，只保留相似度最高的前k个历史记忆（包含过去的画面和动作），屏蔽其余信息，防止模型被历史中积累的噪声干扰。
+- **架构细节**: 
+  - **输入输出**: 输入为当前观测（RGB、本体感觉）、历史观测与动作序列、语言指令（训练时还包含VQA问题）；输出为机器人底层控制动作和VQA文本答案。
+  - **模型结构**: 先用独立编码器将图像、动作等映射到统一特征空间；接着送入Transformer骨干网络进行记忆检索与特征融合；最后通过两个独立的预测头分别输出动作和文本。
+  - **模型规模/细节**: Top-k操作不可导，训练时采用直通估计器（straight-through estimator）保证梯度正常回传。
+- **核心 Loss**: 
+  - 主Loss由两部分组成：模仿学习Loss（动作预测的负对数似然） + VQA Loss（文本答案预测的负对数似然）。两者联合训练，共享底层的特征提取和记忆检索模块。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - **数据集**: ReMemBench（评估长时程记忆操作的仿真基准），以及5个真实世界任务（涵盖固定基座机械臂和移动机械臂）。
+  - **Baseline**: 基于手工设计规则的记忆方法、基于任务特定特征的方法、仅使用VLM先验的方法。
+- **评价指标**: 任务绝对成功率（Absolute task success rate）。
+- **实验结果**: 
+  - 相比手工规则Baseline，成功率绝对值提升12%；相比任务特定特征Baseline，提升21%。
+  - 消融实验表明：仅使用VLM的VQA先验（不做动作预测）成功率仅为18%；结合动作预测后（即完整HALO）达到41%。
+  - 引入Top-k稀疏注意力后，成功率额外提升了9%，验证了限制检索范围对减少闭环误差累积的有效性。模型能够稳定执行长达8分钟的长时程任务。
+
+---
+
+
+### 7. 🔥 [Toward Low-Latency Vision-Language Models with Doubly-Correct Predictions in Egocentric Visual Understanding] (面向第一人称视觉理解的低延迟视觉语言模型与双重正确预测)
+- **研究机构**: `杜比实验室 (Dolby Laboratories), 特拉华大学 (University of Delaware)`
+- **Arxiv ID**: `2606.25160` | [点击跳转](https://arxiv.org/abs/2606.25160)
+
+**0. 论文标题**
+- **英文标题**: Toward Low-Latency Vision-Language Models with Doubly-Correct Predictions in Egocentric Visual Understanding
+- **中文标题**: 面向第一人称视觉理解的低延迟视觉语言模型与双重正确预测
+- **研究机构**: 杜比实验室 (Dolby Laboratories), 特拉华大学 (University of Delaware)
+
+**1. 整体逻辑**
+- **研究任务**: 第一人称视角（Egocentric）下的视频动作识别（判断动作的动词和名词）。
+- **研究动机**: 机器人在第一人称视角下使用 VLM 需要极低的延迟，因此必须对模型进行权重剪枝。但现有的剪枝方法只关注“预测结果对不对”，忽略了“判断依据对不对”。在人机协作中，如果模型“蒙对结果但看错地方”（例如因为背景纹理猜对拿扳手，但实际没看到扳手），会导致严重的安全事故。作者诊断发现，现有剪枝方法会大幅增加“依据对但预测错”的样本比例，破坏了模型的安全性。
+- **本质改动**: 提出一种“理由引导的剪枝策略”（Rationale-Informed Pruning）。在评估权重重要性时，将模型关注的“时空理由”（即目标物体出现的时间和位置）融入计算，确保剪枝后模型在关注正确证据时，依然能做出正确预测。
+- **技术溯源**: 基于 CLIP 架构的 ActionCLIP (ViT-B/32)。
+
+**2. 技术拆解**
+- **重点改进**: 传统的免训练剪枝（如基于权重幅值或激活值）忽略了语义特征。本文在计算 Hessian 矩阵（用于评估权重重要性）时，用理由掩码（Rationale mask）对输入激活进行调制（逐元素相乘）。这样算出来的重要性分数，能精准保留那些对“正确理由”贡献最大的权重。同时，根据每层权重的 L1 范数分配非均匀的剪枝比例，而不是全局统一剪枝。
+- **架构细节**: 
+  - 输入第一人称视频，输出动作类别（动词/名词）和时空理由（时间上判断哪几帧有目标物体，空间上输出目标物体的注意力热力图）。
+  - 计算量分析表明视觉编码器（Vision Encoder）占了绝大部分计算量，因此只剪枝视觉编码器，文本编码器和融合模块保持不变。
+  - 采用训练后剪枝（Post-training pruning），无需重新微调。
+- **核心 Loss**: 本文是训练后剪枝，不需要重新训练，因此没有设计新的 Loss，主要依赖评估指标来验证剪枝效果。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - 数据集：EPIC-KITCHENS VISOR 和 EgoExo4D（两个主流的第一人称视频数据集）。
+  - Baseline：未剪枝的 Dense 模型，以及 OMP、GMP、Kwon et al.、ECoFLaP 等主流免训练剪枝方法。
+- **评价指标**: 
+  - 预测准确率：动词和名词的 Top-1 准确率。
+  - 双重正确预测（DCP）指标：分为空间和时间维度。核心看 RR（预测和理由都正确的样本占比）、IR（理由正确时预测也正确的比例）和 PT（预测正确时理由也正确的比例）。
+  - 计算量：GFLOPs。
+- **实验结果**: 
+  - 现有方法（如表现较好的 ECoFLaP）在 20% 剪枝下，虽然 PT 没掉，但 IR 和 RR 暴跌，证实了剪枝会导致模型“看对地方但猜错结果”。
+  - 本文方法在同等剪枝率（20%-30%）和相近计算量下，预测准确率大幅领先。例如 20% 剪枝下，动词准确率 35.93%（基线最高仅 23.80%）。
+  - 在 DCP 指标上，本文方法有效保住了双重正确能力。20% 剪枝下，空间 RR 达到 9.68%（接近未剪枝的 9.41%，而基线只有 6.96%），时间 RR 达到 32.74%（基线仅 21.40%）。在大幅降低计算延迟的同时，消除了剪枝带来的“依据与预测脱节”的安全隐患。
+
+---
+
+
+### 8. 🔥 [MANGO: Automated Multi-Agent Test Oracle Generation for Vision-Language-Action Models] (MANGO：面向视觉-语言-动作模型的自动化多智能体测试预言生成)
+- **研究机构**: `Mondragon University, Simula Research Laboratory, University of Ottawa, University of Limerick`
+- **Arxiv ID**: `2606.24815` | [点击跳转](https://arxiv.org/abs/2606.24815)
+
+**0. 论文标题**
+- **英文标题**: MANGO: Automated Multi-Agent Test Oracle Generation for Vision-Language-Action Models
+- **中文标题**: MANGO：面向视觉-语言-动作模型的自动化多智能体测试预言生成
+- **研究机构**: Mondragon University, Simula Research Laboratory, University of Ottawa, University of Limerick
+
+**1. 整体逻辑**
+- **研究任务**: 为VLA（视觉-语言-动作）机器人自动生成细粒度的测试预言（Test Oracle），用于评估机器人任务执行的正确性并定位故障。
+- **研究动机**: 现有的VLA测试依赖手工编写的符号预言，只根据最终环境状态判断任务成功或失败（二元结果）。这导致无法区分不同的失败原因（例如“打不开冰箱”和“把东西放错位置”在最终结果上都是失败），难以定位长程任务中的具体故障步骤，且手工编写成本高、难以跨任务复用。
+- **本质改动**: 将复杂的任务指令自动分解为可重用的“原子任务”（如抓取、放置、开门），为每个原子任务生成独立的测试预言，最后按执行顺序组合成细粒度的测试预言。利用多智能体协作迭代优化生成过程。
+- **技术溯源**: 基于大语言模型（LLM）/基础模型（Foundation Models）驱动的多智能体框架（文中未指定具体开源基座名称，采用不同规模的基础模型来平衡生成质量与计算效率）。
+
+**2. 技术拆解**
+- **重点改进**: 提出细粒度测试预言的生成方法。把单一的最终状态检查，改为“原子任务分解 -> 原子预言生成 -> 复杂任务细粒度预言组合”的三步走策略，并引入多智能体反馈机制保证生成质量。
+- **架构细节**: 
+  - **输入输出**: 输入为自然语言任务描述、仿真器可用函数和环境对象；输出为可执行的细粒度测试预言（包含原子任务序列及对应的状态检查逻辑，支持顺序和并行约束）。
+  - **模型结构**: 包含三个核心模块（原子任务库生成、原子预言库生成、细粒度预言生成）。每个模块由三种Agent（Generator负责生成、Assessor负责评估、Judge负责裁决）组成，通过迭代反馈修正逻辑和对象绑定错误。
+- **核心 Loss**: 本文为软件测试方向论文，不涉及传统神经网络训练的梯度下降Loss。核心优化目标是通过多智能体（Assessor和Judge）的规则评估与仿真器执行反馈，最大化生成预言的语法正确性、逻辑合理性和故障定位准确率。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - **数据集**: LIBERO_10 和 RoboCasa Humanoid Tabletop 基准测试集。
+  - **Baseline**: 传统的手工符号测试预言（Symbolic Oracles，仅检查最终状态）。
+- **评价指标**: 
+  - **生成能力**: 生成的预言是否可执行且符合语法和逻辑。
+  - **故障检测能力**: 能否检测出与Baseline相同数量的任务失败。
+  - **故障定位能力**: 能否准确指出具体失败的原子任务步骤或执行顺序错误。
+- **实验结果**: 
+  - MANGO生成的细粒度预言能够检测到与传统符号预言数量相当的失败案例（故障检测能力持平）。
+  - 在故障定位上优势明显，能够准确指出具体是哪个原子任务失败或执行顺序错误，提供了比传统方法丰富得多的诊断信息。
+  - 消融实验证明了多智能体反馈机制和原子任务库对保证生成质量的有效性。
+
+---
+</script>
+            <script>
+                const rawMdElement = document.getElementById('raw-markdown');
+                if (rawMdElement) {
+                    document.getElementById('content').innerHTML = marked.parse(rawMdElement.textContent);
+                    // 渲染后触发公式排版
+                    if (window.MathJax && window.MathJax.typesetPromise) {
+                        window.MathJax.typesetPromise();
+                    }
+                }
+                function copySources() { /* 原代码保持不变 */ }
+            </script>
+        </body>
+        </html>
+        
