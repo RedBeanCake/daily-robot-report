@@ -1,0 +1,383 @@
+
+        <!DOCTYPE html>
+        <html lang="zh-CN">
+        <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>🤖 具身大模型简报 - Fri, 26 Jun 2026 (VLA: 8 of 63 entries)</title>
+            <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.2.0/github-markdown.min.css">
+            <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+            <script>
+                window.MathJax = {
+                    tex: { inlineMath: [['$', '$'], ['\\(', '\\)']], displayMath: [['$$', '$$'], ['\\[', '\\]']] },
+                    options: { skipHtmlTags: ['script', 'style', 'textarea'] }
+                };
+            </script>
+            <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+            <style>
+                .markdown-body { box-sizing: border-box; min-width: 200px; max-width: 980px; margin: 0 auto; padding: 45px; }
+                @media (max-width: 767px) { .markdown-body { padding: 15px; } }
+            </style>
+        </head>
+        <body class="markdown-body">
+            <a href='../index.html' style='margin-bottom:20px; display:block;'>← 返回主索引</a>
+            <h1>🤖 具身大模型简报 - Fri, 26 Jun 2026 (VLA: 8 of 63 entries)</h1>
+            <div id="content"></div>
+            
+            <script type="text/markdown" id="raw-markdown">### 1. 🔥 [World Action Models Enable Continual Imitation Learning with Recurrent Generative Replays] (世界动作模型通过循环生成回放实现持续模仿学习)
+- **研究机构**: `University of North Carolina at Charlotte (UNC Charlotte)`
+- **Arxiv ID**: `2606.27374` | [点击跳转](https://arxiv.org/abs/2606.27374)
+
+**0. 论文标题**
+- **英文标题**: World Action Models Enable Continual Imitation Learning with Recurrent Generative Replays
+- **中文标题**: 世界动作模型通过循环生成回放实现持续模仿学习
+- **研究机构**: University of North Carolina at Charlotte (UNC Charlotte)
+
+**1. 整体逻辑**
+- **研究任务**: 机器人持续模仿学习（Continual Imitation Learning），即让机器人在顺序学习新任务时，不遗忘之前学过的旧任务。
+- **研究动机**: 现有的持续学习方法（如经验回放）需要保存旧任务的真实人类演示数据。但在大模型时代，很多预训练数据是私有的，无法获取真实历史数据。同时，世界动作模型（WAM）在顺序微调新任务时会产生严重的灾难性遗忘。
+- **本质改动**: 利用 WAM 能同时预测动作和未来视觉画面的特性，让模型自己生成旧任务的伪轨迹数据。用这些生成的假数据代替真实数据进行回放训练，从而在不存储真实历史数据的前提下缓解遗忘。
+- **技术溯源**: 基于 Cosmos-Policy（一种 WAM），底层视觉生成基座是 Cosmos-Predict2-2B。
+
+**2. 技术拆解**
+- **重点改进**: 提出循环生成回放（ReGen）框架。在学习新任务时，输入旧任务的语言指令和当前新任务的初始画面，让 WAM 自回归地预测下一步的动作和画面，再把生成的画面喂给模型预测下下一步，循环直到任务结束，拼接成一条旧任务的伪轨迹。
+- **架构细节**: 
+  - **输入**: 多视角 RGB 图像、机器人本体感觉状态、语言指令。
+  - **输出**: 动作块（action chunk，预测步长 H=16）、未来视觉观测、任务完成度奖励（用于判断何时停止生成）。
+  - **模型规模**: 基于 2B 参数的视频生成模型 Cosmos-Predict2-2B 初始化。
+- **核心 Loss**: 行为克隆损失（Behavioral Cloning Loss, $\mathcal{L}_{BC}$）。将新任务的真实数据和生成的旧任务伪数据混合，统一计算动作预测的 BC Loss 进行模型微调。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - **仿真**: LIBERO 数据集（包含 Spatial, Object, Goal 三个子集）。Baseline 包括顺序微调 (Seq-FT)、LoRA微调、EWC、PackNet、需要真实数据的经验回放 (ER，作为性能上界) 以及仿真器回放 (RAR)。
+  - **真机**: xArm7 机械臂，3个连续的抓取放置任务（放胡萝卜到碗、放胡萝卜到盘子、放茄子到碗）。
+- **评价指标**: 前向迁移率 (FWT，学新任务的能力)、负向后向迁移率 (NBT，遗忘旧任务的程度，越低越好)、曲线下面积 (AUC，综合表现)。
+- **实验结果**: 
+  - **仿真**: 相比直接微调 (Seq-FT)，ReGen 将遗忘率 (NBT) 降低了 50% 以上（例如在 LIBERO-Goal 中，NBT 从 100 降至 44.9），综合性能 (AUC) 大幅提升。虽然比不上存了真实数据的 ER，但在不依赖真实历史数据的方法中效果最好。
+  - **真机**: NBT 从 96.3 降至 60.5（减少约 40% 的遗忘），FWT 从 50 提升至 80。
+  - **对比分析**: 对比了纯 VLA（如 $\pi_{0.5}$）和 WAM。$\pi_{0.5}$ 直接微调遗忘严重（NBT 为 88），而 WAM 配合 ReGen 表现更好（NBT 降至 38.7），证明 WAM 的生成能力比纯 VLA 更适合做持续学习。
+
+---
+
+
+### 2. 🔥 [LA4VLA: Learning to Act without Seeing via Language-Action Pretraining] (LA4VLA：通过语言-动作预训练实现无视觉动作学习)
+- **研究机构**: `上海交通大学、阿里巴巴、南洋理工大学、KAUST`
+- **Arxiv ID**: `2606.27295` | [点击跳转](https://arxiv.org/abs/2606.27295)
+
+**0. 论文标题**
+- **英文标题**: LA4VLA: Learning to Act without Seeing via Language-Action Pretraining
+- **中文标题**: LA4VLA：通过语言-动作预训练实现无视觉动作学习
+- **研究机构**: 上海交通大学、阿里巴巴、南洋理工大学、KAUST
+
+**1. 整体逻辑**
+- **研究任务**: 视觉-语言-动作（VLA）模型的预训练，用于提升通用机器人操作策略的指令跟随能力。
+- **研究动机**: 现有的VLA联合训练中，视觉信号（图像token数量多、时序密集）远强于语言信号（单条指令、语义稀疏）。这种不对称导致模型偷懒走“视觉捷径”，过度依赖视觉特征来预测动作，而没有真正学会用语言控制动作。一旦视觉输入被遮挡、替换或产生冲突，模型的动作预测就会失效。
+- **本质改动**: 提出LA4VLA框架，在预训练阶段**完全去掉视觉输入**。通过将长轨迹切分为“原子动作”并配上对应的低层语言描述，构建纯“语言-本体感觉-动作”的数据对，强迫模型学习语言到动作的内在映射，从而减少对视觉捷径的依赖。
+- **技术溯源**: 基于Open X-Embodiment等现有开源机器人演示数据集；数据构建使用了Qwen-3-VL-Plus；模型架构基于1B参数规模的VLA模型（如LA4VLA-1B、StarVLA，诊断实验使用了InternVL3-1B）。
+
+**2. 技术拆解**
+- **重点改进**: 
+  1. 设计了一组诊断实验，定量证明了现有VLA模型存在严重的“视觉捷径”问题。
+  2. 提出无视觉的语言-动作（LA）预训练范式，并系统对比了三种结合方式：纯LA预训练、先LA后VLA顺序预训练、LA与VLA混合预训练。
+- **架构细节**: 
+  - **数据构建 (LA4-33K)**：从现有VLA数据中提取。首先利用机器人状态检测关键帧（如手臂静止、夹爪开合），并定义原子动作词汇表（如抓取、放置、平移、旋转等）。然后使用VLM（Qwen-3-VL-Plus）结合视频和提示词进行时间分割，生成原子动作片段和对应的无视觉低层指令。最后经过人工验证，共构建33K条LA数据。
+  - **模型结构**：LA4VLA-1B是一个1B参数的轻量级VLA模型。输入仅为语言指令和机器人本体状态（无视觉），输出为连续动作，动作头采用Flow Matching。
+- **核心 Loss**: 主Loss为基于Flow Matching动作头的连续动作预测Loss。没有引入视频重建等复杂的辅助任务，就是单纯的语言+本体状态预测动作。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - 仿真数据集：MetaWorld, LIBERO。
+  - Baseline：无预训练的VLA模型（no-pretraining baseline），以及仅用传统VLA数据预训练的模型。
+- **评价指标**: 
+  - 任务平均成功率（Average success rate）。
+  - 指令跟随诊断指标：方向对齐率（DAR）、方向一致性得分（DCS）、可分性比率（SR）、轮廓系数（SS），用于衡量模型是否真正根据语言指令改变动作方向。
+- **实验结果**: 
+  - **仿真表现**：在MetaWorld上平均成功率达到87.53%（比无预训练baseline提升17.8%），在LIBERO上达到96.28%（提升3.43%）。
+  - **真机表现**：在真实操作任务中成功率达到83.3%（比baseline大幅提升45.0%）。
+  - **预训练范式对比**：混合LA-VLA预训练效果最好，证明无视觉的LA预训练和传统的VLA预训练是互补的。
+  - **鲁棒性**：在视觉扰动（如改变背景、视角、物体外观）下，经过LA预训练的模型表现更稳定，诊断指标显示其动作预测不再轻易被冲突的视觉输入带偏，证明其有效减少了对视觉捷径的依赖。
+
+---
+
+
+### 3. 🔥 [PAMAE: Phase-Aware-MoE Action Experts Towards Reliable Flow-Matching Vision-Language-Action Policies] (PAMAE：面向可靠流匹配视觉-语言-动作策略的阶段感知混合动作专家)
+- **研究机构**: `厦门大学 (Xiamen University), 阿伯里斯特威斯大学 (Aberystwyth University)`
+- **Arxiv ID**: `2606.27144` | [点击跳转](https://arxiv.org/abs/2606.27144)
+
+**0. 论文标题**
+- **英文标题**: PAMAE: Phase-Aware-MoE Action Experts Towards Reliable Flow-Matching Vision-Language-Action Policies
+- **中文标题**: PAMAE：面向可靠流匹配视觉-语言-动作策略的阶段感知混合动作专家
+- **研究机构**: 厦门大学 (Xiamen University), 阿伯里斯特威斯大学 (Aberystwyth University)
+
+**1. 整体逻辑**
+- **研究任务**: 多阶段机器人操作任务中的可靠动作生成。
+- **研究动机**: 现有的流匹配 VLA 模型（如 $\pi_0$、$\pi_{0.5}$）通常使用单一共享的动作专家来预测所有执行阶段的控制信号。但在多阶段任务中，接近、接触、运输等不同阶段的控制模式、动力学和精度要求差异很大，单一专家会导致阶段特异性的控制行为被模糊。此外，现有的 MoE 方法大多基于任务语义或模态来分配专家，没有针对底层动作生成的“执行阶段”结构进行专门设计，导致专家分配与阶段控制需求不匹配。
+- **本质改动**: 提出即插即用的 PAMAE 模块。保留预训练的 VLA 骨干网络，将单一的共享动作专家替换为稀疏的混合专家（MoE），并引入一个感知执行阶段的路由器，根据当前阶段线索将动作生成任务分配给不同的专家。
+- **技术溯源**: 基于 Flow-Matching VLA 基座，具体实验中替换了 $\pi_0$ 和 $\pi_{0.5}$ 的动作专家模块。
+
+**2. 技术拆解**
+- **重点改进**: 
+  1. 用稀疏 MoE 替换单一动作专家，并设计阶段感知路由器，利用轻量级执行线索引导专家分配。
+  2. 采用两阶段训练策略：先预热专家，再引入阶段监督路由，并在训练后期退火辅助 loss 以聚焦动作质量。
+- **架构细节**: 
+  - **输入输出**：输入为视觉观测、语言指令和机器人状态。骨干网络输出多模态上下文 $h_t$。输出为流匹配所需的条件速度场。
+  - **模型结构**：包含一个共享主干（提取公共特征）和 $M$ 个动作专家（实验中 $M=6$）。路由器输入特征包括多模态上下文 $h_t$、流时间 $\tau$ 以及轻量级执行描述符 $\phi_t$（包含夹爪状态、夹爪变化、上一步动作幅值、粗略进度）。路由器输出 top-k（实验中 $k=3$）的稀疏权重，加权聚合专家输出。
+  - **模型规模**：以 $\pi_0$ 为例，替换后总参数量从 300M 增加到 450M。
+- **核心 Loss**: 
+  - **主 Loss**：标准的流匹配损失（Flow-matching loss, $\mathcal{L}_{fm}$）。
+  - **辅助 Loss**（第二阶段引入）：
+    1. 阶段预测 Loss ($\mathcal{L}_{phase}$)：用轻量 MLP 预测粗阶段标签（接触前、接触中、接触后），使用交叉熵。
+    2. 路由对齐 Loss ($\mathcal{L}_{route}$)：KL 散度，迫使路由分布对齐阶段特定的目标分布。
+    3. 平滑 Loss ($\mathcal{L}_{smooth}$)：L2 正则化，减少相邻时间步的路由抖动。
+    4. 负载均衡 Loss ($\mathcal{L}_{lb}$)：防止专家坍塌。
+  - **训练策略**：第一阶段仅用 $\mathcal{L}_{fm}$ 和极小的 $\mathcal{L}_{lb}$ 预热专家；第二阶段加入所有辅助 loss，并在最后 30% 的训练步中将辅助 loss 权重线性退火至 10%，让优化重心回归动作质量。推理时不需要阶段标签。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - **数据集**：5个仿真多阶段操作任务（Table-Cleaning, Drawer-Cycle, Lid-Open, Shelf-Insert, Cup-Upright）。
+  - **Baseline**：$\pi_0$, $\pi_0$ (labeled，训练时加了阶段标签但没换 MoE), $\pi_{0.5}$, ProgressVLA。
+- **评价指标**: 
+  - 任务成功率（Task success rates）。
+  - 平均主导专家运行长度（Average dominant-expert run length）：衡量路由在时间上的连贯性。
+  - 阶段条件主导纯度（PCP）：衡量路由分配与执行阶段的一致性。
+- **实验结果**: 
+  - PAMAE 在所有 5 个任务上均优于 baseline。
+  - PAMAE($\pi_0$) 平均成功率从 73.8% 提升至 83.0%（绝对提升 9.2%）。
+  - PAMAE($\pi_{0.5}$) 平均成功率从 85.8% 提升至 91.4%。
+  - 对比 $\pi_0$(labeled) 和 ProgressVLA 的表现，证明单纯在训练时提供阶段信息不够，必须通过阶段监督路由和专家特化才能转化为底层动作生成的提升。
+
+---
+
+
+### 4. 🔥 [Improving Vision-Language-Action Model Fine-Tuning with Structured Stage and Keyframe Supervision] (利用结构化阶段与关键帧监督改进视觉-语言-动作模型的微调)
+- **研究机构**: `中国科学院自动化研究所 (CASIA)`
+- **Arxiv ID**: `2606.26801` | [点击跳转](https://arxiv.org/abs/2606.26801)
+
+**0. 论文标题**
+- **英文标题**: Improving Vision-Language-Action Model Fine-Tuning with Structured Stage and Keyframe Supervision
+- **中文标题**: 利用结构化阶段与关键帧监督改进视觉-语言-动作模型的微调
+- **研究机构**: 中国科学院自动化研究所 (CASIA)
+
+**1. 整体逻辑**
+- **研究任务**: 视觉-语言-动作 (VLA) 模型在机器人操作任务上的微调。
+- **研究动机**: 现有 VLA 模型在微调时，动作损失均匀施加在所有时间步上。但实际操作轨迹是分阶段的（如自由空间移动和接触约束操作），失败往往集中在夹爪状态改变（如抓取、释放）的边界处。均匀的监督让模型很难自己学会关注这些关键转换点。
+- **本质改动**: 提出 StaKe 框架，在训练时加入两个即插即用的辅助监督信号：阶段分类和关键帧预测。这两个信号完全从演示数据的夹爪状态自动提取，无需人工标注。辅助头只在训练时起作用，不改变原模型结构和推理过程。
+- **技术溯源**: 基于 $\pi_{0.5}$ VLA 架构（包含视觉编码器、预训练语言模型骨干和基于 Flow-Matching 的动作专家）。
+
+**2. 技术拆解**
+- **重点改进**: 自动从夹爪状态提取阶段和关键帧标签；在 VLA 骨干网络中引入两个可学习的 query token 和对应的轻量级 MLP 辅助头，在训练时提供结构化的监督信号。
+- **架构细节**: 
+  - **输入输出**: 输入视觉观测和语言指令，输出动作块 (action chunk)。
+  - **阶段标签提取**: 根据夹爪开闭状态划分区间，并向外扩展 $K$ 帧（覆盖接触前准备和接触后稳定阶段），标记为“技能/接触”阶段（1），其余为“运动”阶段（0）。
+  - **关键帧目标提取**: 找到夹爪状态发生变化的帧（以及最后一帧），将当前帧的预测目标设定为下一个状态变化帧的关节配置。
+  - **模型结构**: 在语言模型骨干的输入序列中拼接两个可学习的 query token。骨干输出特征后，分别输入到阶段分类 MLP（输出 0-1 概率）和关键帧预测 MLP（输出关节空间目标）。
+- **核心 Loss**: 
+  - **主 Loss**: Flow-matching 动作生成损失。
+  - **辅助 Loss 1**: 阶段分类损失，使用二元交叉熵 (BCE)。
+  - **辅助 Loss 2**: 关键帧预测损失，使用 L1 损失。
+  - **总 Loss**: 三者加权求和，辅助 Loss 的权重均设为 0.01 以平衡量级。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - **数据集**: RoboTwin 2.0 双臂仿真环境（10个任务，包含2到5个关键帧），以及真实世界 Franka 单臂任务。
+  - **Baseline**: DP, ACT, RDT-1B，以及基础 VLA 模型 $\pi_{0.5}$。
+- **评价指标**: 任务成功率 (%)。
+- **实验结果**: 
+  - **仿真表现**: StaKe 平均成功率达到 59.8%，显著高于 $\pi_{0.5}$ (52.4%) 及其他 baseline。在包含更多关键帧的长序列任务上提升更明显（如 5 个关键帧的任务从 42% 提升到 46%）。
+  - **真机表现**: 在单臂 Franka 任务上，相比基础 $\pi_{0.5}$ 取得了 56% 的相对成功率提升。
+  - **消融实验**: 证明两个辅助 loss 缺一不可；基于事件驱动（夹爪状态变化）的关键帧目标优于固定步长目标；使用专用的可学习 token 优于直接复用 VLM 的最后一个 token。
+
+---
+
+
+### 5. 🔥 [Hallucination in World Models is Predictable and Preventable] (世界模型中的幻觉是可预测且可预防的)
+- **研究机构**: `UC San Diego (加州大学圣地亚哥分校)`
+- **Arxiv ID**: `2606.27326` | [点击跳转](https://arxiv.org/abs/2606.27326)
+
+**0. 论文标题**
+- **英文标题**: Hallucination in World Models is Predictable and Preventable
+- **中文标题**: 世界模型中的幻觉是可预测且可预防的
+- **研究机构**: UC San Diego (加州大学圣地亚哥分校)
+
+**1. 整体逻辑**
+- **研究任务**: 视觉世界模型（Visual World Models）的动作条件未来状态/视频预测。
+- **研究动机**: 现有的世界模型在推演未来时经常发生“幻觉”（生成的画面看起来流畅合理，但偏离了真实的物理动态）。作者认为这并非模型架构不够大，而是**数据覆盖率不足**导致的，幻觉集中在状态-动作空间的低覆盖（边缘）区域。
+- **本质改动**: 将世界模型的“幻觉”问题转化为**数据覆盖问题**。通过将幻觉拆解为三种具体模式，设计了三种无需额外训练的运行时预测信号，并利用这些信号在训练时重采样数据、在推理时指导定向数据采集（主动学习）。
+- **技术溯源**: 基于 Dreamer 4 架构（包含视频 Tokenizer 和基于 Flow-matching 的动力学 Transformer），下游策略头使用了 CLIP-ViT/B 处理语言指令。
+
+**2. 技术拆解**
+- **重点改进**: 
+  1. **提出 MMBench2 数据集**：包含 427 小时、210 个连续控制任务的视觉世界模型数据集，带有真实动作、奖励和实时仿真器。
+  2. **定义三种幻觉模式及预测信号**：
+     - *感知幻觉*（Tokenizer 重建错误）：用 **Tokenizer 往返残差 ($u_r$)** 预测，即预测的 latent 解码后再编码的残差。
+     - *动作忽略幻觉*（动力学模型不响应动作）：用 **Flow 不稳定性 ($u_f$)** 预测，即去噪过程中预测目标的震荡程度。
+     - *场景发散幻觉*（多步推演累积误差导致物理不合理）：用 **种子间方差 ($u_s$)** 预测，即不同随机种子下预测结果的方差。
+     *(注：以上信号均除以场景运动幅度进行了归一化)*
+  3. **缓解策略**：训练时采用**覆盖率感知采样**（按任务均匀采样而非按帧）；推理时把幻觉预测信号当作好奇心奖励，进行**定向数据收集**。
+- **架构细节**: 
+  - 模型总参数量 350M。
+  - **Tokenizer (100M)**：对称的 Encoder-Decoder Transformer。输入 224x224 图像，输出 64x64 的潜空间特征（64维，tanh激活）。
+  - **Dynamics Model (250M)**：Block-causal Transformer。输入包含动作 token、噪声/步长 token、32个空间 latent token 等。推理时只需 4 步 Euler 采样即可生成下一帧。
+- **核心 Loss**: 
+  - Tokenizer：Masked 重建 Loss（Pixel MSE + LPIPS）。
+  - Dynamics：Shortcut flow-matching Loss（结合单步回归和自一致性蒸馏）。
+  - 下游头：Reward 预测用 symlog two-hot 离散回归 Loss，行为克隆 (BC) 策略用 MSE Loss。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - 数据集：自建的 MMBench2（200个任务用于预训练，10个任务用于 zero-shot 迁移测试）。
+  - Baseline：主要是模型自身的不同训练阶段对比（如普通预训练 vs 覆盖率感知预训练），以及计算 PSNR 时使用的“重复最后一帧”的 naive baseline。
+- **评价指标**: 
+  - 重建 PSNR（评估 Tokenizer 质量）。
+  - Rollout PSNR gain（评估生成质量，<=0 视为场景发散）。
+  - Action shuffle ratio（评估动作敏感性，打乱动作后 MSE 的变化，<=1.1 视为动作被忽略）。
+  - 下游任务归一化得分（用 CEM 做 MPC 闭环控制）。
+  - 幻觉预测的 Spearman 相关系数和 AUROC。
+- **实验结果**: 
+  - 提出的三种预测信号与实际的 rollout 误差高度负相关（Spearman $\rho \approx -0.80$），能准确在运行时预测幻觉。
+  - 覆盖率感知采样（按任务均匀采样）能同时降低三种幻觉信号，提升 rollout 保真度，且没有额外计算成本。
+  - 在线定向数据收集效果显著：把幻觉预测信号当作奖励去真实环境收集数据，**只需 50 条真实环境轨迹**，就能让预训练模型很好地微调适应完全未见过的环境，效果接近人类专家收集的数据。
+
+---
+
+
+### 6. 🔥 [Fast LeWorldModel] (快速LeWorldModel)
+- **研究机构**: `Xi’an Jiaotong University（西安交通大学）`
+- **Arxiv ID**: `2606.26217` | [点击跳转](https://arxiv.org/abs/2606.26217)
+
+**0. 论文标题**
+- **英文标题**: Fast LeWorldModel
+- **中文标题**: 快速LeWorldModel
+- **研究机构**: Xi’an Jiaotong University（西安交通大学）
+
+**1. 整体逻辑**
+- **研究任务**: 基于视觉的无奖励目标条件潜在空间规划（Visual goal-conditioned planning in latent space）。即在潜在空间中预测动作序列的后果，结合CEM等采样算法寻找最优动作。
+- **研究动机**: 现有的 LeWM（LeWorldModel）等基于 JEPA 的潜在世界模型在评估候选动作时，依赖单步自回归 rollout（一步步预测下一个 latent）。这导致两个致命问题：一是规划速度极慢，因为要串行计算整个轨迹；二是误差累积，中间步的预测误差会不断传递并放大，导致长 horizon 预测失效。
+- **本质改动**: 用“动作前缀并行预测”代替“单步自回归 rollout”。不再一步步推导中间状态，而是直接根据当前状态和动作序列的不同长度前缀，一次性并行预测多步后的未来 latent，从而切断中间步骤的误差传递并实现并行计算。
+- **技术溯源**: 基于 LeWorldModel (LeWM) / JEPA (Joint-Embedding Predictive Architectures) 框架。
+
+**2. 技术拆解**
+- **重点改进**: 将动态模型的预测接口从“单步状态转移”重构为“动作前缀预测”。引入了动作前缀编码器（Action-Prefix Encoder）和并行潜在预测器（Parallel Latent Predictor）。
+- **架构细节**: 
+  - **输入输出**: 输入当前视觉 latent $z_t$ 和候选动作序列 $a_{t:t+H-1}$；输出未来 $H$ 步的所有 latent 预测 $\hat{z}_{t+1:t+H}$。
+  - **动作前缀编码器**: 采用带因果掩码（causal mask）的 3 层 Transformer。将当前 latent 通过 MLP 映射为第 0 个 token，后面拼接动作 token。利用因果掩码，确保第 $k$ 个位置的输出 token 只包含前 $k$ 个动作的信息（即动作前缀）。
+  - **并行潜在预测器**: 采用 6 层动作调制残差 MLP（使用 AdaLN-zero）。将当前 latent 和所有前缀 token 输入，一次性并行映射出所有未来步的 latent。
+  - **模型规模**: 总参数量约 17.9M，与基线 LeWM（18.0M）基本持平。
+- **核心 Loss**: 
+  - **主 Loss**: 密集前缀预测损失（Dense Prefix Prediction Objective）。对每一个前缀长度 $k$，计算预测 latent $\hat{z}_{t+k}$ 和真实未来 latent $z_{t+k}$ 的 MSE，然后求平均。这迫使模型学习不同长度动作前缀带来的累积状态变化。
+  - **正则化**: 保留 SIGReg 正则化项，防止 latent 空间坍塌。
+  - **规划时辅助项（可选）**: 在 CEM 规划打分时，加入“自一致性惩罚”，即直接预测终点 latent 与通过中间步预测终点 latent 的差异，鼓励模型输出稳定的预测。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - **数据集/环境**: Two-Room, Reacher, PushT, OGBench-Cube（完全复用 LeWM 的离线数据集和评估协议）。
+  - **Baseline**: PLDM, DINO-WM, LeWM。
+- **评价指标**: 
+  - **规划成功率**: CEM 规划后到达目标的成功比例。
+  - **规划效率**: 动力学模块评估时间（仅含动作编码和 latent 预测）和完整的 CEM 求解总时间。
+  - **开环预测误差**: 在 latent 空间预测未来状态与真实编码状态之间的误差。
+- **实验结果**: 
+  - **成功率提升**: 平均成功率从 LeWM 的 85.8% 提升至 90.5%；加入自一致性惩罚后进一步提升至 92.0%。
+  - **大幅加速**: 在 Two-Room 任务上，动力学模块耗时从 31.4s 降至 8.0s（加速 3.9 倍，模型调用次数从 55 次降至 11 次）；完整的 CEM 求解总时间从 54.4s 降至 28.3s（减少 48%）。
+  - **误差累积缓解**: 开环预测的初始误差显著降低，且误差随预测步数增长的斜率明显变缓，证明前缀设计有效切断了自回归带来的误差累积。
+
+---
+
+
+### 7. 🔥 [RMTL: Reinforced Micro-task Learning for Long-Horizon Manipulation with VLM Rewards] (RMTL：基于VLM奖励的强化微任务学习用于长序列机械臂操作)
+- **研究机构**: `Istanbul Technical University (伊斯坦布尔理工大学)`
+- **Arxiv ID**: `2606.26175` | [点击跳转](https://arxiv.org/abs/2606.26175)
+
+**0. 论文标题**
+- **英文标题**: RMTL: Reinforced Micro-task Learning for Long-Horizon Manipulation with VLM Rewards
+- **中文标题**: RMTL：基于VLM奖励的强化微任务学习用于长序列机械臂操作
+- **研究机构**: Istanbul Technical University (伊斯坦布尔理工大学)
+
+**1. 整体逻辑**
+- **研究任务**: 基于像素观测和强化学习的长序列机械臂操作任务（如 Fetch 环境下的抓取任务）。
+- **研究动机**: 直接用单个全局文本提示（如“机械臂抓起红块”）通过 VLM 算奖励时，在任务早期（机械臂还没碰到物体）奖励信号几乎是平的（near-flat），没有梯度，导致 RL 无法学习；此外，单视角容易被机械臂或物体遮挡，导致 VLM 打分抖动。
+- **本质改动**: 将单一全局提示拆解为多个阶段性的“微任务”提示（如：靠近、对齐、抓取）；结合多视角 VLM 打分求平均以抗遮挡；引入反向课程学习解决随机初始位置的冷启动问题；并设计两阶段训练，从规则切换微任务过渡到学习自动切换。
+- **技术溯源**: 基于冻结的 CLIP 架构 VLM（具体使用 PE-Core-bigG-14-448）作为零样本奖励模型，底层强化学习算法使用 PPO 和 REINFORCE。
+
+**2. 技术拆解**
+- **重点改进**: 
+  1. **微任务奖励拆解**：把长序列任务拆成 3 个微任务（approach, align, grasp），当前处于哪个阶段就用对应的短提示算 VLM 奖励，把原本平缓的奖励变成阶梯状单调递增的信号。
+  2. **多视角聚合**：使用 6 个固定视角的 VLM 得分求算术平均，消除单视角的遮挡噪声。
+  3. **两阶段分层训练**：Stage 1 用基于距离的规则来切换微任务，训练 PPO worker；Stage 2 用行为克隆（BC）预热一个小 MLP 管理器，然后用 REINFORCE 训练它来自动决定何时切换微任务，同时微调 worker。
+- **架构细节**: 
+  - **输入**：6 个视角的渲染图像，当前激活的微任务文本提示。
+  - **输出**：标量奖励（多视角 VLM 得分均值），以及机械臂的连续动作（4维：xyz 位移 + 夹爪开合）。
+  - **模型规模**：VLM 保持冻结（PE-Core-bigG-14-448）；Worker 是标准的 PPO 策略网络；Manager 是一个约 2k 参数的小型 MLP，每 3 个环境步输出一次微任务选择（3 分类离散动作）。
+- **核心 Loss**: 
+  - **Worker**：标准的 PPO Loss（最大化多视角 VLM 奖励）。
+  - **Manager**：Stage 2 初始阶段使用 Cross-Entropy Loss 做 BC 预热（模仿规则切换的标签），随后使用 REINFORCE 算法基于片段回报（segment returns）进行策略梯度更新。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - **环境**：Gymnasium-Robotics 中的 FetchPickAndPlace-v4（MuJoCo 仿真）。为了适配 VLM，对渲染器做了高保真修改（如红块、木桌、中性灰背景）。
+  - **Baseline**：单全局提示+多视角、单全局提示+单视角、非分层 PPO、基于规则切换的分层 PPO。
+- **评价指标**: 评估成功率（Success rate，即稳定抓起并抬起方块的比例），随环境交互步数的变化曲线。
+- **实验结果**: 
+  - **微任务 vs 单提示**：单全局提示在随机初始位置下完全失败（0% 成功率），微任务拆解成功收敛，证明拆解能有效提供早期梯度。
+  - **规则 vs 学习管理器**：学习管理器（~98% 成功率）优于规则切换（94%）和无分层的 PPO（89%）。管理器有 73% 的决策与规则一致，但突破了规则的性能上限，且训练成本更低。
+  - **多视角 vs 单视角**：多视角平均的奖励曲线比任何单视角都更平滑，有效减少了遮挡带来的噪声，且没有损失奖励的梯度形状。
+
+---
+
+
+### 8. 🔥 [LiMoDE: Rethinking Lifelong Robot Manipulation from a Mixture-of-Dynamic-Experts Perspective] (LiMoDE：从动态混合专家视角重新思考机器人终身操作)
+- **研究机构**: `南洋理工大学 (Nanyang Technological University)`
+- **Arxiv ID**: `2606.26183` | [点击跳转](https://arxiv.org/abs/2606.26183)
+
+**0. 论文标题**
+- **英文标题**: LiMoDE: Rethinking Lifelong Robot Manipulation from a Mixture-of-Dynamic-Experts Perspective
+- **中文标题**: LiMoDE：从动态混合专家视角重新思考机器人终身操作
+- **研究机构**: 南洋理工大学 (Nanyang Technological University)
+
+**1. 整体逻辑**
+- **研究任务**: 机器人操作的终身学习（Lifelong Learning），即让机器人在连续学习新操作任务的同时，不遗忘之前学过的旧任务。
+- **研究动机**: 现有的参数高效微调（PEFT，如 LoRA、Prompt）方法在终身学习中，通常只是机械地为每个新任务学一个独立的 adapter。这种做法没有挖掘不同任务间共享的底层技能（比如“移向碗”和“移向杯子”底层都是“平移”技能），也没有建模新任务之间的交互，导致知识复用率低、新任务适应慢。
+- **本质改动**: 把传统的固定参数 adapter 改造成了“动态混合专家 (MoE)”结构。在预训练阶段，根据动作的剧烈程度动态激活不同数量的专家来提取基础技能；在终身学习阶段，把每个任务学到的 adapter 当作一个“终身专家”，遇到新任务时，动态组合历史专家和当前新专家，实现跨任务的知识迁移。
+- **技术溯源**: 基于 Transformer 策略网络架构，视觉和语言编码器使用了 CLIP，核心网络设计借鉴了 MoE（混合专家模型）和 LoRA（低秩微调）的思想。
+
+**2. 技术拆解**
+- **重点改进**: 
+  1. **动态混合专家结构 (DyMoES)**：用于预训练阶段。将专家拆分为“一个基础专家 + 多个不同秩(rank)的低秩专家”。设计了一个“视觉动态条件路由器”，通过计算当前帧和上一帧视觉特征的差异（代表动作剧烈程度），动态决定激活几个专家。动作越复杂（如抓取、接触），激活的专家越多。
+  2. **终身 MoE 适应机制 (LiMoEAM)**：用于终身学习阶段。将每个任务学到的低秩专家存下来作为“终身专家”。学习新任务时，新初始化一个专家，并用一个轻量级路由器将历史专家和当前新专家动态组合。
+  3. **轻量级回放策略 (Replay Strategy)**：为了防止路由器在学新任务时发生“漂移”（忘记旧任务该怎么路由），不存储庞大的完整轨迹数据，而是只存储旧任务路由器的“输入上下文和输出组合系数”，用 MSE 约束当前路由器输出与历史保持一致。
+- **架构细节**: 
+  - **输入**：CLIP 提取视觉和语言特征，通过 FiLM 融合后，拼接本体感受（proprioception）token。
+  - **主干**：因果 Transformer (Causal Transformer)。MoE 层每隔一个 Transformer block 替换一次 FFN 层。
+  - **输出**：Action head 预测未来 T 步的动作（包含相对平移、相对旋转和夹爪状态）。
+- **核心 Loss**: 
+  - **主 Loss**：行为克隆损失 (Behavior Cloning Loss)，即动作预测的负对数似然损失。
+  - **辅助 Loss 1 (RDR Loss)**：路由器去相关正则化。约束路由器权重矩阵接近正交矩阵，目的是防止路由器“偷懒”同时激活所有专家，保证路由的多样性和稀疏性。
+  - **辅助 Loss 2 (Replay Loss)**：回放策略损失。约束新任务学习时路由器的输出系数与历史存储的系数一致，防止路由器“喜新厌旧”导致灾难性遗忘。
+
+**3. 实验结果**
+- **数据集和 baseline**: 
+  - **仿真**：使用 LIBERO 基准测试（包含 Object, Goal, Spatial, Long 四个子集，每个子集 10 个任务顺序到达），预训练使用 LIBERO-90。对比方法包括 SeqFT, ER, L2M, TAIL, IsCiL, LOTUS, BUDS, M2Distill, PPL。
+  - **真机**：设计了 8 个任务（3个预训练，5个终身学习），包含抓取、倒水、搅拌、扫地等操作。多任务微调对比 SDP 和 OpenVLA；终身学习对比 SeqFT 和 PPL。
+- **评价指标**: 
+  - **仿真**：FWT (前向迁移率，越高越好)，BWT (后向迁移率，负值代表遗忘程度，越接近0越好)，AUC (曲线下面积，综合性能指标)。
+  - **真机**：任务成功率 (%)。
+- **实验结果**: 
+  - **仿真 (以 LIBERO-LONG 为例)**：相比次优方法 PPL，LiMoDE 的 AUC 提升了 9% (58% vs 49%)，BWT 降低了 9% (遗忘更少，-14% vs -23%)。在四个子集上均取得 SOTA 表现。
+  - **真机**：在多任务微调阶段，3个预训练任务的平均成功率为 60%（SDP 为 36.7%，OpenVLA 为 30%）。在终身学习阶段，5个任务的平均成功率为 54%（SeqFT 仅为 19%，PPL 为 34%）。证明了该方法在真实物理世界中既能高效适应新任务，又能很好地保持旧技能。
+
+---
+</script>
+            <script>
+                const rawMdElement = document.getElementById('raw-markdown');
+                if (rawMdElement) {
+                    document.getElementById('content').innerHTML = marked.parse(rawMdElement.textContent);
+                    // 渲染后触发公式排版
+                    if (window.MathJax && window.MathJax.typesetPromise) {
+                        window.MathJax.typesetPromise();
+                    }
+                }
+                function copySources() { /* 原代码保持不变 */ }
+            </script>
+        </body>
+        </html>
+        
