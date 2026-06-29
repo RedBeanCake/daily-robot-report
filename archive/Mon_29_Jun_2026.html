@@ -1,0 +1,237 @@
+
+        <!DOCTYPE html>
+        <html lang="zh-CN">
+        <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>🤖 具身大模型简报 - Mon, 29 Jun 2026 (VLA: 5 of 36 entries)</title>
+            <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.2.0/github-markdown.min.css">
+            <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+            <script>
+                window.MathJax = {
+                    tex: { inlineMath: [['$', '$'], ['\\(', '\\)']], displayMath: [['$$', '$$'], ['\\[', '\\]']] },
+                    options: { skipHtmlTags: ['script', 'style', 'textarea'] }
+                };
+            </script>
+            <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+            <style>
+                .markdown-body { box-sizing: border-box; min-width: 200px; max-width: 980px; margin: 0 auto; padding: 45px; }
+                @media (max-width: 767px) { .markdown-body { padding: 15px; } }
+            </style>
+        </head>
+        <body class="markdown-body">
+            <a href='../index.html' style='margin-bottom:20px; display:block;'>← 返回主索引</a>
+            <h1>🤖 具身大模型简报 - Mon, 29 Jun 2026 (VLA: 5 of 36 entries)</h1>
+            <div id="content"></div>
+            
+            <script type="text/markdown" id="raw-markdown">### 1. 🔥 [S2-VLA: State-Space Guided Vision-Language-Action Models for Long-Horizon Manipulation] (S2-VLA：状态空间引导的视觉-语言-动作模型用于长视野操作)
+- **研究机构**: `华东师范大学、上海交通大学`
+- **Arxiv ID**: `2606.27872` | [点击跳转](https://arxiv.org/abs/2606.27872)
+
+**0. 论文标题**
+- **英文标题**: S2-VLA: State-Space Guided Vision-Language-Action Models for Long-Horizon Manipulation
+- **中文标题**: S2-VLA：状态空间引导的视觉-语言-动作模型用于长视野操作
+- **研究机构**: 华东师范大学、上海交通大学
+
+**1. 整体逻辑**
+- **研究任务**: 长视野（多步骤、长序列）机器人操作任务。
+- **研究动机**: 现有的VLA模型在长视野任务中容易失败，核心原因是它们采用“静态特征融合”（用固定权重融合视觉、语言和动作特征）。这导致模型无法根据任务阶段动态调整注意力（例如：抓取时需要视觉细节，规划时需要语义意图），进而造成早期误差在长序列中不断累积和放大。
+- **本质改动**: 引入了一个“状态空间引导的自适应注意力机制（SSGAA）”。通过维护一个隐式的“信念状态（belief state）”来实时跟踪任务进度，并据此动态生成门控权重，让模型在不同任务阶段自适应地调整对视觉、语义和动作历史特征的注意力比例。
+- **技术溯源**: 视觉语言基座采用 **Qwen3-VL**；动作解码采用**并行解码（Parallel Decoding）** 架构（类似OpenVLA-OFT，直接回归连续动作，而非自回归生成token）。
+
+**2. 技术拆解**
+- **重点改进**: 将静态的多模态特征融合改为了**动态门控融合**。核心创新是设计了一个轻量级的GRU来更新“信念状态”，用这个状态去控制三个并行注意力分支的融合权重，实现“因时制宜”的特征提取。
+- **架构细节**: 
+  - **输入构建**: 多视角视觉特征、语言指令、本体感受，以及可学习的意图token。
+  - **信念状态更新**: 用GRU结合历史动作序列和本体感受，递归更新信念状态。这个状态隐式编码了当前处于任务的哪个阶段以及执行是否有偏差。
+  - **SSGAA模块**: 包含三个并行的注意力分支：1) 动作序列自注意力（保证预测动作的时间连贯性）；2) 低级视觉交叉注意力（提取细粒度空间细节）；3) 高级意图交叉注意力（提取高层语义规划）。
+  - **动态门控**: 通过一个MLP将信念状态映射为三个分支的Softmax权重，动态加权融合这三个分支的输出。
+  - **动作输出**: 融合后的特征经过LayerNorm和线性层，直接并行解码出未来K步的连续动作。整个模型规模约2B，推理仅需7GB显存。
+- **核心 Loss**: 仅使用**动作预测的L2 Loss**（预测动作与真实动作的均方误差）。没有引入视频重建等辅助任务，也没有对任务阶段进行显式监督，信念状态完全依靠动作预测误差端到端隐式学习出来。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - **仿真**: LIBERO（包含Spatial, Object, Goal, Long四个子集）和 SimplerEnv-Bridge（WidowX机械臂）。对比了OpenVLA, OpenVLA-OFT, Pi0, MemoryVLA, UniVLA等主流2B到8B级别的VLA模型。
+  - **真机**: ALOHA双臂平台（包含抓取、堆叠、桌面整理、餐具分配四个长视野任务）。对比了ACT和Pi0-FAST。
+- **评价指标**: 任务成功率（Success Rate）。
+- **实验结果**: 
+  - **LIBERO仿真**: 2B参数的S2-VLA平均成功率达到 **98.2%**，超越了所有对比方法（包括7B/8B的OpenVLA-OFT 97.1%、MemoryVLA 96.7%）。在最关键的Long（长视野）子集上达到 96.4%，显著优于基线。
+  - **SimplerEnv仿真**: 平均成功率 **78.1%**，大幅领先MemoryVLA (71.9%) 和 Pi0-Beta (68.4%)。
+  - **真机实验**: 在四个复杂的长视野双臂任务中，成功率均稳定优于ACT和Pi0-FAST，证明了动态特征融合在真机长序列操作中的有效性。
+
+---
+
+
+### 2. 🔥 [Drop-Then-Recovery: How Redundant Are Vision-Language-Action Models?] (先丢弃再恢复：视觉-语言-动作模型到底有多冗余？)
+- **研究机构**: `University of Maryland, College Park, Cisco Research`
+- **Arxiv ID**: `2606.27755` | [点击跳转](https://arxiv.org/abs/2606.27755)
+
+**0. 论文标题**
+- **英文标题**: Drop-Then-Recovery: How Redundant Are Vision-Language-Action Models?
+- **中文标题**: 先丢弃再恢复：视觉-语言-动作模型到底有多冗余？
+- **研究机构**: University of Maryland, College Park, Cisco Research
+
+**1. 整体逻辑**
+- **研究任务**: 评估 VLA（视觉-语言-动作）模型中各个组件（视觉、语言、动作）的架构冗余度，并探索如何安全地压缩 VLA 模型以加速训练和推理。
+- **研究动机**: 现在的 VLA 模型直接照搬了庞大的预训练语言大模型（LLM）作为骨干。但机器人操作任务的指令通常很短（比如“拿起红杯子”），语言模型的参数量远超实际闭环控制的需求，导致严重的计算资源浪费。
+- **本质改动**: 提出 DTR (Drop-Then-Recovery) 分析协议。不采用传统的剪枝或量化，而是直接物理删掉 Transformer 的 Block，然后微调剩下的模型看性能能不能恢复。为了决定先删哪个 Block，提出了 GateProbe 指标，通过计算虚拟门控对动作 Loss 的敏感度来给 Block 排序。
+- **技术溯源**: 基于 OpenVLA-OFT, $\pi_{0.5}$, Lingbot-VLA, GigaBrain-0 等主流 VLA 架构。
+
+**2. 技术拆解**
+- **重点改进**: 
+  1. **DTR 协议**：分两步。Drop（根据重要性物理移除 K 个最不重要的 Block，短路残差连接）和 Recovery（在下游任务上微调剩余模型，评估被删容量是否真的必要）。
+  2. **GateProbe 指标**：传统的静态指标（如余弦相似度）或梯度指标（如 Taylor）在极端压缩下选块不准。GateProbe 在每个 Block 的残差分支上加一个虚拟标量门 $\alpha_i$，计算动作 Loss 对 $\alpha_i$ 的梯度（即下游梯度与 Block 残差输出的内积），以此精准衡量该 Block 对下游动作预测的真实贡献。
+- **架构细节**: 
+  - **输入输出**：输入是视觉观测和语言指令，输出是机器人动作。
+  - **模型结构**：VLA 包含视觉、语言和动作模块，均由堆叠的 Transformer Block 组成。DTR 可以针对任意组件进行 Block 级别的移除。对于 $\pi_{0.5}$ 这种双流架构，移除语言 Block 时会保留 K/V 投影以维持交叉注意力机制。
+  - **模型规模**：测试了多种规模，发现语言骨干被删掉一半甚至只留 2 个 Block，模型依然能维持基线性能。
+- **核心 Loss**: 
+  - **主 Loss**：动作预测 Loss（如连续动作的 MSE，或基于 Diffusion/Flow-matching 的 Loss）。
+  - **辅助任务**：无。GateProbe 的评估直接依赖主 Loss 对虚拟门控的偏导数，没有引入额外的视频重建或特征对齐 Loss。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - **数据集**：仿真用 LIBERO, LIBERO-Plus, RoboTwin 2.0；真机用 UFACTORY xArm 进行仓库包裹分拣任务。
+  - **Baseline**：未压缩的原始 VLA 模型，以及传统的零样本剪枝/跳过层方法（如 CosSim, 随机丢弃）。
+- **评价指标**: 
+  - **任务指标**：任务成功率 (Success Rate, SR)。
+  - **效率指标**：参数量、计算量 (FLOPs)、单步推理延迟、端到端任务加速比（考虑了成功率下降导致的总步数增加）。
+- **实验结果**: 
+  - **语言模块极度冗余**：在 LIBERO 上，OpenVLA-OFT 删掉一半语言 Block，在同等算力预算下（因为模型变小，可以微调更多步），成功率从 95.0% 提升到 98.3%；极端情况下只保留 2 个语言 Block，也能恢复到 95.1% 的基线水平。相比之下，视觉和动作模块非常敏感，删一点就崩溃。
+  - **GateProbe 选块最准**：在极端压缩（如 18 个 Block 删到只剩 1-2 个）时，GateProbe 选出的 Block 组合恢复效果远好于 Taylor、Fisher 或静态指标。
+  - **真机表现与鲁棒性**：真机包裹分拣任务中，删掉一半语言 Block 性能持平或微涨。但在分布外（OOD）扰动下（如改变光照、移走容器），删得太多的模型鲁棒性明显下降。这说明被删的语言 Block 其实提供了一定的物理泛化能力，而不仅仅是处理语言指令。
+  - **加速效果**：DTR-16 (删 16 个 Block) 在 OpenVLA-OFT 上实现了 1.64 倍的端到端任务加速，内存减少 42%。对比零样本直接删 Block，虽然单步推理快了，但因为成功率暴跌导致总步数增加，端到端反而变慢，证明了 Recovery 微调的绝对必要性。
+
+---
+
+
+### 3. 🔥 [DiM-WAM: World-Action Modeling with Diverse Historical Event Memory] (DiM-WAM：基于多样化历史事件记忆的世界-动作建模)
+- **研究机构**: `中科院自动化所 (NLPR, CASIA)、银王智能 (Yinwang Intelligent Technology) 等`
+- **Arxiv ID**: `2606.27677` | [点击跳转](https://arxiv.org/abs/2606.27677)
+
+**0. 论文标题**
+- **英文标题**: DiM-WAM: World-Action Modeling with Diverse Historical Event Memory
+- **中文标题**: DiM-WAM：基于多样化历史事件记忆的世界-动作建模
+- **研究机构**: 中科院自动化所 (NLPR, CASIA)、银王智能 (Yinwang Intelligent Technology) 等
+
+**1. 整体逻辑**
+- **研究任务**: 长视野（long-horizon）机器人操作任务。
+- **研究动机**: 现有的世界动作模型（WAM）主要依赖短期历史和短期未来预测，在处理长视野任务时容易“遗忘”早期关键信息，且缺乏对全局任务进度的感知。如果直接拉长上下文窗口，不仅计算量大，早期关键状态还会被注意力机制稀释，且自回归生成的视觉误差会不断累积。此外，现有的记忆增强VLA大多只针对动作预测，没有解决记忆如何参与自回归视觉状态更新的问题。
+- **本质改动**: 给世界动作模型引入“多库历史事件记忆”机制和“任务进度感知”辅助训练。把长期记忆拆分成多个独立的记忆库分别管理，避免信息互相挤占，同时强迫模型在记忆中记住当前任务的整体进度。
+- **技术溯源**: 基于世界动作模型（World-Action Models, WAMs），具体实验中以 LingBot-VA 为基座模型。
+
+**2. 技术拆解**
+- **重点改进**: 
+  1. **多库时间记忆（Multi-Bank Temporal Memory）**：用多个并行的记忆库代替单一记忆库。每个库独立进行基于相似度的压缩和更新，防止不同时间尺度和语义的历史事件在单一固定容量下互相覆盖。
+  2. **任务进度感知学习（Task-Progress-Aware Memory Learning）**：引入全局任务进度预测作为辅助目标，让长期记忆不仅编码“过去发生了什么”，还能编码“当前处于任务的哪个阶段以及还剩多少没做”。
+- **架构细节**: 
+  - **输入输出**：输入语言指令、局部上下文（短期历史+短期未来）和长期记忆状态；输出未来的视觉状态（视频）和动作序列。
+  - **记忆更新机制**：从真实观测中提取紧凑的视觉事件token。每个记忆库固定容量（$N$个槽位，包含初始锚点、中间历史和最新事件）。当库写满时，计算新事件与最新事件的相似度，以及库内最冗余的相邻历史对的相似度。如果新事件的价值不如合并最冗余历史对，就丢弃新事件；否则合并最冗余对腾出空间写入新事件。合并时按“累积质量（accumulated mass）”进行加权平均。
+  - **记忆读取机制**：读取时，给保留的记忆token加上“库身份嵌入（bank-identity embedding）”和 RoPE 时间嵌入，按时间顺序展平后，作为条件输入给视频和动作的去噪网络。
+- **核心 Loss**: 
+  - **主 Loss**：视频和动作的联合去噪 Loss（基于扩散/生成模型的 denoising loss）。
+  - **辅助 Loss**：任务进度预测 Loss（progress-supervision objective），以及促使不同记忆库学习不同表示子空间的跨库多样性 Loss（cross-bank diversity objectives）。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - 仿真数据集：RMBench。
+  - 真机数据集：4个基于 Franka Panda 机械臂的长视野操作任务。
+  - Baseline：基础世界动作模型 LingBot-VA，以及显式记忆基线 Mem-0。
+- **评价指标**: 
+  - 仿真环境：平均任务成功率（average success）。
+  - 真机环境：平均阶段成功率（average stage success）和完整任务成功率（full-task success）。
+- **实验结果**: 
+  - 在 RMBench 仿真中，DiM-WAM 将平均成功率从 LingBot-VA 的 28.4% 大幅提升至 69.8%，也显著超过了 Mem-0 的 42.0%。
+  - 在真机实验中，平均阶段成功率从 70.7% 提升至 91.5%，完整任务成功率从 52.5% 提升至 80.0%。
+  - 消融实验和跨库行为分析表明，多库结构和进度监督均不可或缺，且不同的记忆库确实学习到了互补的事件选择模式和表示子空间，没有发生记忆坍缩。
+
+---
+
+
+### 4. 🔥 [Direct Action-Head Injection of A Grounded 3D Point Unlocks Spatial and Task Generalization] (将接地的3D点直接注入动作头以解锁空间与任务泛化能力)
+- **研究机构**: `National Tsing Hua University, National Yang Ming Chiao Tung University`
+- **Arxiv ID**: `2606.27663` | [点击跳转](https://arxiv.org/abs/2606.27663)
+
+**0. 论文标题**
+- **英文标题**: Direct Action-Head Injection of A Grounded 3D Point Unlocks Spatial and Task Generalization
+- **中文标题**: 将接地的3D点直接注入动作头以解锁空间与任务泛化能力
+- **研究机构**: National Tsing Hua University, National Yang Ming Chiao Tung University
+
+**1. 整体逻辑**
+- **研究任务**: 视觉-语言-动作（VLA）模型的机器人抓取与放置（Pick-and-Place）操作任务。
+- **研究动机**: 现有VLA模型在测试时面临两个泛化瓶颈：物体位置改变（空间泛化）和相同场景但指令改变（任务泛化）。现有方法通常通过文本或图像提示给模型提供2D像素坐标作为空间引导，但2D信号无法直接指导3D物理空间的动作，导致泛化效果依然很差。
+- **本质改动**: 放弃通过文本或图像输入2D坐标，改为将2D目标点结合深度信息升维到3D，计算其与夹爪的相对位移，然后通过自适应层归一化（AdaLN）直接注入到扩散动作头（Action Head）中。
+- **技术溯源**: 基于 GR00T-N1.6 和 $\pi_{0.5}$ 等开源VLA基座模型。
+
+**2. 技术拆解**
+- **重点改进**: 设计了一个轻量级、与模型无关的空间嵌入注入模块。核心结论是：在动作预测任务中，“3D表示 + 直接注入动作头”远优于“2D表示 + 文本/视觉提示”。
+- **架构细节**: 
+  - **输入**: 现成视觉模块输出的2D目标点、深度图、相机参数、机器人当前夹爪状态。
+  - **结构**: 首先利用深度和相机参数将2D点转为3D目标位置。然后计算目标点与夹爪的3D相对位移。接着用一个两层MLP将位移编码为空间嵌入向量。
+  - **注入方式**: 在基于DiT（Diffusion Transformer）的动作头中，将该空间嵌入与时间步嵌入逐元素相加，通过AdaLN机制直接调制DiT每一层的特征。
+  - **模型规模**: 仅增加了一个两层MLP，完全不修改VLA骨干网络结构和预训练流程。
+- **核心 Loss**: 沿用原VLA基座（如Flow-matching或Diffusion）的动作预测Loss，无额外辅助任务。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - **数据集**: 仿真使用 LIBERO 和 LIBERO-PRO（包含同分布、任务扰动、位置扰动三种设置）；真机使用自采的8个抓取放置任务。
+  - **Baseline**: OpenVLA, $\pi_0$, MolmoAct，以及未加模块的 $\pi_{0.5}$ 和 GR00T-N1.6。还包括各种2D/3D提示和注入方式的消融变体。
+- **评价指标**: 平均成功率（Average Success Rate）。
+- **实验结果**: 
+  - **仿真表现**: 在LIBERO-PRO中，GR00T-N1.6在任务扰动下成功率从31.2%提升至77.5%（+46.3%），在位置扰动下从28.1%提升至60.2%（+32.1%）。在 $\pi_{0.5}$ 上同样有约30%-40%的绝对提升，证明该方法与基座模型无关。
+  - **真机表现**: 在任务和位置扰动下，基线和2D提示方法的成功率跌至接近0，而本文方法仍能保持较高成功率。
+  - **其他发现**: 消融实验证明，只用20个任务训练的本方法，超过了基线用69个任务训练的效果（设计优于数据堆叠）；仅输入相对位移（而非绝对坐标）泛化效果更好；方法对深度噪声具有鲁棒性。
+
+---
+
+
+### 5. 🔥 [PhysisForcing: Physics Reinforced World Simulator for Robotic Manipulation] (PhysisForcing：用于机器人操作的物理强化世界模拟器)
+- **研究机构**: `北京大学 (Peking University), 英伟达 (NVIDIA)`
+- **Arxiv ID**: `2606.28128` | [点击跳转](https://arxiv.org/abs/2606.28128)
+
+**0. 论文标题**
+- **英文标题**: PhysisForcing: Physics Reinforced World Simulator for Robotic Manipulation
+- **中文标题**: PhysisForcing：用于机器人操作的物理强化世界模拟器
+- **研究机构**: 北京大学 (Peking University), 英伟达 (NVIDIA)
+
+**1. 整体逻辑**
+- **研究任务**: 机器人操作场景下的具身视频生成（将视频生成模型作为物理世界模拟器）。
+- **研究动机**: 现有的视频生成模型在生成机器人操作视频时，经常出现物理违规现象（如机械臂轨迹不连续、物体穿透、反重力、被抓物体漂移等）。作者发现，这是因为现有方法要么只关注局部几何约束，要么使用稀疏的偏好对齐，并且对所有像素均匀施加监督，导致接触区域的物理信号被静态背景稀释，无法同时保证局部运动连续性和全局交互逻辑的合理性。
+- **本质改动**: 提出 PhysisForcing 训练框架。核心思想是“区域聚焦”与“层级对齐”：不再全图均匀监督，而是先提取发生物理交互的关键区域（机械臂、物体、接触区），然后对这些区域同时施加像素级的轨迹对齐和语义级的关系对齐，强制模型在特征层面学习符合物理规律的局部运动和全局交互。
+- **技术溯源**: 基于 DiT 架构的视频生成基座（具体使用了 Wan2.2-I2V-A14B, Wan2.2-TI2V-5B, 和 Cosmos3-Nano）。辅助使用了 CoTracker3（用于点跟踪提取真实轨迹）和冻结的自监督视频理解编码器（用于提取语义关系特征）。
+
+**2. 技术拆解**
+- **重点改进**: 将物理监督从“全图均匀”改为“关键区域聚焦”，并将物理约束拆分为“像素级局部运动”和“语义级全局关系”两个层级，直接在 DiT 的中间层特征上进行对齐训练。
+- **架构细节**: 
+  - **物理区域提取**：用 CoTracker3 提取密集点轨迹，结合首帧深度图计算前景权重，筛选出运动幅度大且在前景的轨迹，生成时空物理掩码（Physics Mask），精准定位机械臂、物体和接触区。
+  - **像素级物理对齐**：在 DiT 中间层提取特征，用首帧特征做 Query，后续帧做 Key，通过计算相似度图来预测每个点的坐标轨迹。利用物理掩码限制计算范围，让预测轨迹与 CoTracker3 提取的真实轨迹进行对齐，保证局部运动连续且符合接触动力学。
+  - **语义级物理对齐**：用冻结的视频理解编码器提取真实视频的特征，同时把 DiT 中间层特征投影到同一空间。利用物理掩码选出关键 token，计算两边的 token 两两相似度矩阵（关系矩阵）。让 DiT 的关系矩阵去拟合编码器的关系矩阵，从而保证全局交互逻辑正确（例如：抓取时物体和夹爪的耦合关系、推物体时的联动关系）。
+  - **推理开销**：所有辅助模型（CoTracker、视觉编码器）和额外的 MLP 仅在训练时使用，推理时全部丢弃，不增加任何推理成本。
+- **核心 Loss**: 主 Loss 是标准的 Flow Matching Loss。辅助 Loss 包含两部分：1) 像素级轨迹对齐 Loss（Masked MSE，限制在物理掩码区域内计算预测点与真实点的坐标误差）；2) 语义级关系对齐 Loss（L1 Loss，计算 DiT 特征与冻结编码器特征在关键 token 上的关系矩阵差异）。无视频重建等额外辅助任务。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - 训练数据：过滤后的 RoVid-X 数据集（约 500K 高质量机器人操作视频）。
+  - 评估基准：R-Bench, PAI-Bench (机器人域), EZS-Bench。
+  - Baseline：通用开源模型（HunyuanVideo, Wan, LTX等），商业模型（Wan2.6, Veo3, Sora等），机器人专用模型（Cosmos, DreamGen, Vidar, ABot-PhysWorld等）。
+- **评价指标**: R-Bench 等榜单的综合得分及各项物理/任务维度得分；在 WorldArena 协议下的闭环成功率（评估作为世界模型用于下游动作规划的效果）。
+- **实验结果**: 
+  - **视频生成**：在 R-Bench 上，PF-Cosmos (Cosmos3-Nano) 和 PF-Wan (Wan2.2-I2V-A14B) 比原始基座模型分别提升 9.2% 和 22.3%，比直接微调（vanilla finetuning）分别提升 3.7% 和 7.1%。PF-Cosmos 取得了 R-Bench 所有评估模型中的最高总分。在 PAI-Bench 和 EZS-Bench 上也取得了一致提升。
+  - **策略学习（下游任务）**：在 WorldArena 动作规划协议中，将闭环成功率从 16.0% 提升至 24.0%。当作为 World Action Model 的视频骨干时，也提升了下游策略的成功率。证明物理对齐的视频模型能提供更可靠的表征，直接利好机器人决策。
+
+---
+</script>
+            <script>
+                const rawMdElement = document.getElementById('raw-markdown');
+                if (rawMdElement) {
+                    document.getElementById('content').innerHTML = marked.parse(rawMdElement.textContent);
+                    // 渲染后触发公式排版
+                    if (window.MathJax && window.MathJax.typesetPromise) {
+                        window.MathJax.typesetPromise();
+                    }
+                }
+                function copySources() { /* 原代码保持不变 */ }
+            </script>
+        </body>
+        </html>
+        
