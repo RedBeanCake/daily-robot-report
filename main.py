@@ -197,7 +197,7 @@ def deep_dive_only(papers_to_process):
         try:
             # 深度解析建议用逻辑更强的模型（如 qwen-plus）
             completion = client_llm.chat.completions.create(
-                model="qwen3.7-plus-2026-05-26",  # qwen3.6-plus, qwen3.5-flash
+                model="qwen3.7-max",  # qwen3.6-plus, qwen3.5-flash
                 messages=[{"role": "user", "content": expert_prompt}]
             )
             report = completion.choices[0].message.content
