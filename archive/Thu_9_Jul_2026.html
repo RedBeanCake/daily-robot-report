@@ -1,0 +1,368 @@
+
+        <!DOCTYPE html>
+        <html lang="zh-CN">
+        <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>🤖 具身大模型简报 - Thu, 9 Jul 2026 (VLA: 8 of 50 entries)</title>
+            <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.2.0/github-markdown.min.css">
+            <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+            <script>
+                window.MathJax = {
+                    tex: { inlineMath: [['$', '$'], ['\\(', '\\)']], displayMath: [['$$', '$$'], ['\\[', '\\]']] },
+                    options: { skipHtmlTags: ['script', 'style', 'textarea'] }
+                };
+            </script>
+            <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+            <style>
+                .markdown-body { box-sizing: border-box; min-width: 200px; max-width: 980px; margin: 0 auto; padding: 45px; }
+                @media (max-width: 767px) { .markdown-body { padding: 15px; } }
+            </style>
+        </head>
+        <body class="markdown-body">
+            <a href='../index.html' style='margin-bottom:20px; display:block;'>← 返回主索引</a>
+            <h1>🤖 具身大模型简报 - Thu, 9 Jul 2026 (VLA: 8 of 50 entries)</h1>
+            <div id="content"></div>
+            
+            <script type="text/markdown" id="raw-markdown">### 1. 🔥 [LaMem-VLA: Dual Latent Memory in Vision-Language-Action Models for Robotic Manipulation] (LaMem-VLA：面向机器人操作的视觉-语言-动作模型双潜空间记忆机制)
+- **研究机构**: `南京理工大学、浙江大学、新加坡国立大学`
+- **Arxiv ID**: `2607.07608` | [点击跳转](https://arxiv.org/abs/2607.07608)
+
+**0. 论文标题**
+- **英文标题**: LaMem-VLA: Dual Latent Memory in Vision-Language-Action Models for Robotic Manipulation
+- **中文标题**: LaMem-VLA：面向机器人操作的视觉-语言-动作模型双潜空间记忆机制
+- **研究机构**: 南京理工大学、浙江大学、新加坡国立大学
+
+**1. 整体逻辑**
+- **研究任务**: 机器人操作（Robotic Manipulation），特别是长视野、具有时间依赖性的多步任务。
+- **研究动机**: 现有的VLA（视觉-语言-动作）模型大多基于马尔可夫假设，只根据当前这一帧的观测来预测动作，缺乏对历史状态的感知，导致在长视野任务中表现很差。现有的记忆增强方法要么直接拼接历史帧（计算量大且受限于上下文窗口上限），要么从外部记忆库检索历史作为辅助上下文（记忆游离在VLA的原生推理空间之外，无法和当前的视觉、语言推理深度融合）。
+- **本质改动**: 把历史经验变成VLA原生潜空间里的“记忆Token”。设计了短期（视觉）和长期（语义/动作）双记忆库，让历史记忆直接在潜空间里和当前观测、指令拼接，深度参与VLA的内部推理和动作生成。
+- **技术溯源**: 视觉语言基座基于 Prismatic VLM (7B) 和 LLaMA-7B，动作生成基于 Diffusion Policy（扩散策略），预训练使用了 Open-X Embodiment 大规模跨具身数据集。
+
+**2. 技术拆解**
+- **重点改进**: 将记忆机制从“外部辅助上下文”转变为“原生潜空间Token”。设计了四个协同模块：Curator（管理双记忆库）、Seeker（检索相关记忆）、Condenser（将检索内容压缩为固定长度Token）、Weaver（将记忆Token编织进VLA推理序列）。
+- **架构细节**: 
+  - **输入输出**：输入当前RGB观测和语言指令，输出7-DoF机械臂末端动作序列（Action Chunk）。
+  - **短期记忆库（Short-term vault）**：存储当前episode的视觉特征，用SE-bottleneck压缩，均值池化后作为检索Key。
+  - **长期记忆库（Long-term vault）**：存储历史的动作隐藏状态（Action hidden states），用来记录任务进度和动作连续性。
+  - **记忆更新**：当记忆数量超过容量上限时，计算相邻Key的余弦相似度，把最相似（最冗余）的相邻两个记忆单元取平均进行合并。
+  - **检索与压缩（Seeker & Condenser）**：用当前的“视觉+指令”多模态特征生成Query，从双库中Top-K检索相关记忆；然后通过可学习的Memory Slots，将检索到的长序列压缩成固定长度的短期和长期记忆Token。
+  - **序列拼接（Weaver）**：最终输入大模型的序列为 `[短期记忆Token; 长期记忆Token; 当前视觉Token; 指令Token; 动作Query]`。
+  - **模型规模**：VLM骨干网络为7B参数级别。
+- **核心 Loss**: （注：提供文本在方法末尾截断，未直接展示Loss公式）基于其架构，主Loss为Diffusion Action Expert的动作生成Loss（如去噪MSE或Flow Matching Loss），辅助包含VLM骨干的多模态对齐与自回归Loss。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - **数据集**：LIBERO（仿真环境）、SimplerEnv-Bridge（仿真环境）。
+  - **Baseline**：MemoryVLA、CogACT、$\pi_0$ (Pi0)。
+- **评价指标**: 任务平均成功率（Average Success Rate）。
+- **实验结果**: 
+  - **在LIBERO上**：平均成功率达到 97.6%，比 MemoryVLA 高 1.1%，比基线 CogACT 高 4.4%，在前四个子集比 $\pi_0$ 高 3.5%。
+  - **在SimplerEnv-Bridge上**：平均成功率达到 73.9%，比 CogACT 大幅提升 16.6%，比 $\pi_0$ 高 4.7%。
+  - **结论**：在潜空间原生融合双尺度记忆，显著提升了VLA模型在长视野和依赖历史线索任务中的鲁棒性，效果明显优于把记忆当作外部辅助上下文的方法。
+
+---
+
+
+### 2. 🔥 [EmbodiedGen V2: An Agentic, Simulation-Ready 3D World Engine for Embodied AI] (EmbodiedGen V2：面向具身智能的Agent化、仿真就绪3D世界引擎)
+- **研究机构**: `Horizon Robotics (地平线), WuwenAI`
+- **Arxiv ID**: `2607.07459` | [点击跳转](https://arxiv.org/abs/2607.07459)
+
+**0. 论文标题**
+- **英文标题**: EmbodiedGen V2: An Agentic, Simulation-Ready 3D World Engine for Embodied AI
+- **中文标题**: EmbodiedGen V2：面向具身智能的Agent化、仿真就绪3D世界引擎
+- **研究机构**: Horizon Robotics (地平线), WuwenAI
+
+**1. 整体逻辑**
+- **研究任务**: 为具身智能自动生成可直接用于物理仿真和策略训练的3D物体资产与任务场景。
+- **研究动机**: 现有的3D生成模型只能生成“看起来好看”的视觉模型，缺乏物理属性、交互语义和仿真器接口，导致搭建可用于强化学习或VLA训练的仿真环境仍需大量人工拼装。前代 V1 版本也存在背景只能是单Mesh导致相机平移受限、缺乏部件级交互语义等问题，限制了闭环学习的规模化。
+- **本质改动**: 从单纯的3D内容生成工具升级为统一的“仿真就绪（Sim-Ready）3D世界引擎”。通过一套统一的表示方法，把3D资产生成、部件级交互语义（Affordance）标注、任务驱动的场景布局、大规模多房间生成以及自然语言编辑（Vibe Coding）串联起来，直接输出跨仿真器可用的物理环境。
+- **技术溯源**: 3D生成基于 TRELLIS / SAM3D / Hunyuan3D，文生图基于 SD3.5 / Kolors，分割基于 SAM / P3-SAM，语义和物理属性推断基于 GPT-5.4 (VLM)，抓取生成基于 GraspGen，物理仿真和验证基于 SAPIEN 等主流引擎。
+
+**2. 技术拆解**
+- **重点改进**: 
+  1. **Sim-Ready 3D资产生成**：加入了几何修复、纹理烘焙，并用VLM恢复真实世界的尺度、质量和摩擦系数，最后统一打包成URDF并自动转换为MuJoCo/Isaac等格式，且支持柔性体（如衣物）生成。
+  2. **Affordance自动标注**：用P3-SAM做部件分割，VLM标注部件语义，结合GraspGen生成6-DoF抓取姿态，并在物理引擎中做抓取、提起等验证，过滤掉不稳定的抓取。
+  3. **任务驱动的场景生成**：LLM将自然语言任务解析为场景图（Scene Graph），通过BFS遍历和物理引擎的重力沉降（Physics settling）来放置物体，保证无碰撞且物理稳定。
+  4. **大规模场景与Vibe Coding**：支持生成带房间拓扑和可通行门的多房间大场景；提供状态化的自然语言编辑接口，可以直接用自然语言修改物理世界状态。
+- **架构细节**: 
+  - 资产生成是一个包含多级质量门控（Quality Gating）的流水线，在输入、3D生成、物理恢复等阶段都有VLM或规则进行打分和筛选，不合格会自动换种子重试。
+  - 场景布局采用类似“绿幕”的思想，将环境分为背景（Background）和任务相关的前景交互资产。布局时先放父节点再放子节点，结合支持面约束和IoU碰撞检测计算位置，最后在SAPIEN中做重力沉降消除穿模和悬浮。
+- **核心 Loss**: 本文主要是一个工程与生成流水线，不涉及传统的神经网络训练Loss。核心依赖**多级质量门控（VLM打分、几何检查）**和**物理仿真验证（如抓取稳定性测试、重力沉降）**来筛选和优化生成结果。下游策略训练则使用常规RL/VLA的Reward。
+
+**3. 实验结果**
+- **数据集和baseline**: 评估了生成的4K+资产库和任务场景。下游闭环验证对比了未经生成环境微调的Baseline策略和 EmbodiedGen V1。
+- **评价指标**: 资产质量用人类接受度和碰撞成功率评价；场景可用性用“无需人工修改即可直接用于仿真的比例”评价；下游任务用仿真成功率和真机成功率评价。
+- **实验结果**: 
+  - 资产流水线达到 96.5% 的人类接受度和 98.6% 的碰撞成功率。
+  - 任务驱动生成的场景中，83.3% 可直接用于下游仿真，无需人工修改。
+  - 下游闭环验证中，使用生成的环境进行在线强化学习微调，仿真成功率从 9.7% 大幅提升至 79.8%，真机任务成功率从 21.7% 提升至 75.0%。
+
+---
+
+
+### 3. 🔥 [GeoProp: Grounding Robot State in Vision for Generalist Manipulation] (GeoProp：将机器人本体状态锚定于视觉特征的通用操作策略)
+- **研究机构**: `阿里巴巴达摩院 (DAMO Academy)、同济大学 (Tongji University)`
+- **Arxiv ID**: `2607.07101` | [点击跳转](https://arxiv.org/abs/2607.07101)
+
+**0. 论文标题**
+- **英文标题**: GeoProp: Grounding Robot State in Vision for Generalist Manipulation
+- **中文标题**: GeoProp：将机器人本体状态锚定于视觉特征的通用操作策略
+- **研究机构**: 阿里巴巴达摩院 (DAMO Academy)、同济大学 (Tongji University)
+
+**1. 整体逻辑**
+- **研究任务**: 机器人操作策略中本体感觉（机器人自身状态，如末端位姿）与视觉特征的融合。
+- **研究动机**: 现有的操作模型（如Diffusion Policy或VLA）通常把本体感觉当成一个全局向量，直接拼接到视觉特征里。这导致3D的运动学状态和2D的视觉特征缺乏显式的空间对应关系。模型很难把“手在哪”和“画面里的物体”对齐，有时候加了本体感觉，效果反而不如纯视觉模型。
+- **本质改动**: 设计了一个轻量级的即插即用模块 GeoProp。利用相机内外参把机器人末端的3D坐标投影到2D图像上，直接在投影位置的视觉特征上做局部调制和采样，把本体感觉显式地“锚定”在对应的视觉特征区域。
+- **技术溯源**: 基于 Diffusion Policy (DP) 和 $\pi_0$ (VLA大模型) 这两个主流操作策略框架，视觉骨干网络使用了 ResNet-18 和 ViT-Base。
+
+**2. 技术拆解**
+- **重点改进**: 把原本全局拼接的本体感觉向量，改成了基于几何投影的局部视觉特征调制和采样，建立了3D状态和2D视觉特征的显式空间对应。
+- **架构细节**: 
+  - **输入**: RGB图像、本体状态（末端3D位置、四元数姿态、夹爪状态）、相机内外参。
+  - **结构**: 分为三步。1) **几何投影**：把末端3D位置投影到2D特征图坐标，通过双线性插值采样出“接地状态token”；2) **局部调制**：在视觉骨干的中间特征图上，只在投影点对应的网格单元使用 FiLM 注入本体状态信息，然后再过 FPN 聚合多尺度特征；3) **前瞻采样**：利用前几帧的3D位置做多项式外推，预测下一帧的末端位置，投影后在未调制的特征图上采样出“前瞻token”。最后把这两个token和全局视觉token拼接，输入给下游策略。
+  - **模型规模**: 参数量增加极少，仅比原模型增加 2%~3%。
+- **核心 Loss**: 没有修改 Loss，也没有增加辅助任务（如视频重建）。直接使用下游策略自带的 Loss（如 Diffusion Policy 的扩散 Loss 或 $\pi_0$ 的动作预测 Loss）。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - **数据集**: 仿真环境使用了 MetaWorld (50个任务)、RLBench (6个任务) 和 RoboTwin (双臂7个任务)；真机环境使用了 Mobile ALOHA (4个家务任务)。
+  - **Baseline**: 对比了 Diffusion Policy (ResNet-18/ViT-Base) 和 $\pi_0$ 模型。基线方法为原始融合方法 (Vanilla) 和 纯视觉方法 (No-Proprio)。
+- **评价指标**: 任务成功率 (Success Rate, %)。
+- **实验结果**: 
+  - **仿真 DP**: 在63个任务上，ResNet-18 骨干下平均成功率提升 8.5%（达到 75.3%），ViT-Base 骨干下提升 9.0%（达到 71.0%）。
+  - **仿真 $\pi_0$**: 在 RoboTwin 任务上，平均成功率从 64.0% 提升到 68.0%（提升 4.0%）。
+  - **真机 Mobile ALOHA**: DP 的平均成功率从 38.8% 提升到 50.0%（提升 11.2%），$\pi_0$ 从 43.8% 提升到 53.8%（提升 10.0%）。整体真机平均提升约 10.6%。
+
+---
+
+
+### 4. 🔥 [WAM-TTT: Steering World-Action Models by Watching Human Play at Test Time] (WAM-TTT：在测试时通过观看人类操作视频来引导世界-动作模型)
+- **研究机构**: `北京大学、Galbot（银河通用）、中科院自动化所（CASIA）、清华大学`
+- **Arxiv ID**: `2607.06988` | [点击跳转](https://arxiv.org/abs/2607.06988)
+
+**0. 论文标题**
+- **英文标题**: WAM-TTT: Steering World-Action Models by Watching Human Play at Test Time
+- **中文标题**: WAM-TTT：在测试时通过观看人类操作视频来引导世界-动作模型
+- **研究机构**: 北京大学、Galbot（银河通用）、中科院自动化所（CASIA）、清华大学
+
+**1. 整体逻辑**
+- **研究任务**: 在机器人部署（测试）阶段，利用少量无标签的人类操作视频，引导预训练的机器人世界-动作模型（WAM）适应新任务或新环境。
+- **研究动机**: 现有的机器人基础模型部署后行为就固定了，想让它适应新环境或新任务，通常需要重新采数据微调，或者把人类视频塞进上下文（In-Context Learning）。微调容易导致灾难性遗忘，而把视频塞进上下文不仅会让序列长度爆炸，且实际效果很差，模型根本学不到新技能。此外，利用人类视频通常还需要手部姿态、3D动作等昂贵标注。
+- **本质改动**: 不把人类视频当成模仿的轨迹，也不直接塞进上下文，而是把它变成一种“测试时记忆”。通过在模型里加一个轻量级的自适应记忆模块（TTT fast weights），在测试时仅用无标签的人类视频做自监督视频预测来更新这个记忆模块，从而引导冻结的主模型生成正确的动作。
+- **技术溯源**: 基于 LDA（一个预训练的 World-Action Model，包含视频专家和动作专家，基于 Diffusion Transformer 架构）。
+
+**2. 技术拆解**
+- **重点改进**: 在 LDA 的视频专家（Video expert）的每个 Transformer block 中，插入了一个 TTT（Test-Time Training）残差分支，用来充当快速权重记忆（fast-weight memory），而动作专家保持原样不动。
+- **架构细节**: 
+  - 基础架构是 LDA 的 DiT block，包含视频和动作两个专家。
+  - 改进后，视频 expert 的输出加上了 TTT 残差：$z^{(l+1)} = \hat{z}^{(l+1)} + \Delta z_{TTT}^{(l)}$。
+  - TTT 层包含慢速投影矩阵（$\theta_K, \theta_V, \theta_Q, \theta_O$）和一个快速权重网络 $f_W$（本质是个 MLP）。
+  - 训练分两步：
+    1. **元训练（Meta-training）**：使用配对的人机数据。内循环用人类视频更新快速权重 $W$；外循环用机器人数据更新 WAM 主参数、慢速投影和 $W$ 的初始化值。
+    2. **测试时（Test-time）**：WAM 主参数和慢速投影全部冻结。输入少量无标签人类视频，通过内循环 SGD 更新快速权重 $W$。更新完后固定 $W$，让机器人执行任务。
+- **核心 Loss**: 
+  - **内循环 Loss（更新 fast weights）**：人类视频预测损失（让模型能预测人类视频的下一帧） + KV 记忆重建损失（强制 fast weight 网络能根据人类特征的 Key 重建出对应的 Value，把人类视频信息存进记忆里）。
+  - **外循环 Loss（更新慢速参数和主模型）**：标准的 WAM 机器人多任务损失（机器人视频扩散损失 + 动作扩散损失）。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - **数据集**：自己收集的 2286 个配对的人机操作 episode，涵盖 9 个操作任务（如倒水、翻牛排等）。评估在标准实验室环境（Orig.）和未见过的家庭环境（New）中进行，使用了 Unitree G1 人形、Galbot 夹爪和灵巧手三种硬件。
+  - **Baseline**：LDA（无人类数据无 TTT）、WAM-Cotrain（联合训练人类数据）、WAM-ICL（人类视频直接作为上下文输入）、EgoScale、$\pi_{0.5}$。
+- **评价指标**: Progress (%)，即任务完成度。完全成功得 1.0，部分成功按达到的子目标比例给分，每个任务跑 25 次取平均。
+- **实验结果**: 
+  - 在最具挑战的未见家庭环境（New）下，WAM-TTT 平均完成度达到 **46.2%**。
+  - 对比 baseline：比原版 LDA（32.5%）高 13.7 个点；比直接把视频当上下文的 WAM-ICL（7.1%）高出 39.1 个点，证明把视频变成“记忆”比塞进上下文有效得多；也大幅优于联合微调的 WAM-Cotrain（25.3%）以及 $\pi_{0.5}$（14.8%）和 EgoScale（15.0%）。
+  - 此外，消融和泛化实验表明，WAM-TTT 在测试时吸收人类视频记忆，不会破坏基础模型原有的泛化能力（在光照、物体位置扰动下依然表现稳定）。
+
+---
+
+
+### 5. 🔥 [RoboSnap: One-Shot Real-to-Sim Scene Generation for Generalizable Robot Learning and Evaluation] (RoboSnap：面向泛化机器人学习与评估的单图真实到仿真场景生成)
+- **研究机构**: `上海人工智能实验室、上海交通大学、浙江大学、清华大学`
+- **Arxiv ID**: `2607.06699` | [点击跳转](https://arxiv.org/abs/2607.06699)
+
+**0. 论文标题**
+- **英文标题**: RoboSnap: One-Shot Real-to-Sim Scene Generation for Generalizable Robot Learning and Evaluation
+- **中文标题**: RoboSnap：面向泛化机器人学习与评估的单图真实到仿真场景生成
+- **研究机构**: 上海人工智能实验室、上海交通大学、浙江大学、清华大学
+
+**1. 整体逻辑**
+- **研究任务**: 从单张RGB图像重建出物理稳定、视觉保真，且可直接用于机器人仿真交互和策略评估的场景（Real-to-Sim）。
+- **研究动机**: 现有的场景重建方法要么需要多视角或人工干预，成本太高；要么单图重建出来的场景物理上不稳定（比如物体悬浮、穿模），没法直接丢进物理引擎里让机器人去交互和训练。
+- **本质改动**: 采用“分层设计”，把场景拆成“可交互的物理层”（前景物体和桌面）和“视觉上下文层”（背景）。对物理层做基于SDF和物理引擎的交替优化来修正位姿，解决悬浮和穿模；背景层用3D高斯溅射（3DGS）来保证新视角下的渲染效果。
+- **技术溯源**: 视觉大模型（VLM，如GPT-4V）、SAM 3D（3D网格重建）、VGGT（单目几何与深度预测）、3D Gaussian Splatting（背景渲染）、Isaac Sim / SAPIEN（物理仿真引擎）。
+
+**2. 技术拆解**
+- **重点改进**: 
+  1. **分层重建与渲染**：前景用Mesh加物理属性，背景用3DGS，最后通过深度合成（Depth-composite）把两层拼起来，兼顾交互性和视觉保真度。
+  2. **仿真就绪的位姿优化（Simulation-ready Refinement）**：单图重建的物体位姿往往不准。作者先用VLM推断物体间的物理场景图（谁支撑谁、谁挨着谁），然后交替使用SDF优化和物理引擎结算来微调物体位姿，让场景在仿真器里“站稳”。
+- **架构细节**: 
+  - **输入**：单张RGB图像。
+  - **物理层**：VLM识别物体，SAM 3D生成初始Mesh，VGGT提供点云，通过ICP把Mesh对齐到场景几何上。
+  - **视觉层**：用VLM引导补全被前景遮挡的背景，然后生成3DGS场景。
+  - **物理优化**：把Mesh转成V-HACD碰撞体，在SAPIEN里跑物理仿真，根节点物体设为运动学，其余设为动力学。
+- **核心 Loss**: 
+  - 主要是SDF优化阶段的Loss，包括：**穿透损失**（Penetration loss，防止物体互相穿模）、**支撑损失**（Support loss，保证物体安稳放在支撑面上）、**接触损失**（Contact loss，保证物体间保持合理的接触距离）以及**正则化项**（限制位姿调整幅度，防止优化跑偏）。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - **数据集**：构建了DROID-Sim（包含564个DROID真实场景的仿真对应集），并在4个真实桌面任务上进行测试。
+  - **Baseline**：重建方法对比了RoLA（单图重建）、SAM 3D、SAM 3D+FoundationPose；策略训练对比了纯真实数据微调的 $\pi_{0.5}$ 和 $\pi_0$ 模型。
+- **评价指标**: 
+  - **视觉与物理指标**：PSNR、SSIM、下落比例（Falling）、碰撞比例（Collision）、位移/旋转误差（MSE）。
+  - **任务指标**：轨迹回放成功率、真实世界任务成功率。
+  - **仿真-真实相关性**：Pearson相关系数（r）和平均最大排名违反（MMRV，越低越好）。
+- **实验结果**: 
+  - **物理稳定性大幅提升**：在Isaac Sim中跑300步，RoboSnap的物体下落比例降到10.26%（RoLA是38.1%），碰撞比例降到2.56%，位移MSE从0.0736降到0.0022，场景非常稳定。
+  - **轨迹回放**：5个测试场景全部成功回放原始DROID轨迹，而RoLA只成功了2个。
+  - **策略微调效果**：用RoboSnap生成的数据混合训练（60%真实+20%仿真+20%增强），$\pi_{0.5}$ 的真实世界平均成功率从32.7%提升到41.7%，$\pi_0$ 从29.3%提升到42.7%。
+  - **鲁棒性增强**：在相机位姿、机械臂初始状态等扰动下，混合训练的策略性能下降更少（平均下降幅度从13%降至8%）。
+  - **评估相关性高**：仿真成功率与真实成功率的Pearson相关系数达到0.887，MMRV仅为0.0066，说明生成的仿真场景能准确反映策略在真实世界的表现，可以当作可靠的评估工具。
+
+---
+
+
+### 6. 🔥 [NativeMEM: Native Memory Compression for Long-Horizon Robotic Manipulation] (NativeMEM：面向长视距机器人操作的原生记忆压缩)
+- **研究机构**: `香港大学 (HKU)、地平线机器人 (Horizon Robotics)`
+- **Arxiv ID**: `2607.06678` | [点击跳转](https://arxiv.org/abs/2607.06678)
+
+**0. 论文标题**
+- **英文标题**: NativeMEM: Native Memory Compression for Long-Horizon Robotic Manipulation
+- **中文标题**: NativeMEM：面向长视距机器人操作的原生记忆压缩
+- **研究机构**: 香港大学 (HKU)、地平线机器人 (Horizon Robotics)
+
+**1. 整体逻辑**
+- **研究任务**: 解决视觉-语言-动作（VLA）模型在长视距（Long-Horizon）机器人操作中的记忆问题，让机器人能记住历史交互状态（如按过哪个按钮、物品原来放在哪、扫码扫过哪些商品）。
+- **研究动机**: 现有的VLA大多是“单帧反应式”的，缺乏历史记忆。以前的记忆增强方法要么靠外部大模型写“文本笔记”（容易丢失视觉细节且成本高），要么在模型里硬塞新的记忆模块（如RNN或检索库），这会破坏预训练VLA的特征空间，且面临“压得太狠丢细节，不压上下文又太长”的矛盾。
+- **本质改动**: 不引入外部模块，直接复用VLA自带的视觉编码器，把每个历史帧（每个相机视角）极度压缩成**1个Token**。把这些“原生记忆Token”直接拼到VLA原本的输入序列里，让VLA用自己的注意力机制去读取历史。
+- **技术溯源**: 基于预训练的单帧VLA模型（实验中具体使用的是 $\pi_{0.5}$ 作为基座模型）。
+
+**2. 技术拆解**
+- **重点改进**: 
+  1. **原生记忆压缩**：在VLA原有的视觉编码器里加一个可学习的 Query Token，通过注意力机制把一帧图像的所有 Patch Token 聚合成 1 个 Summary Token。
+  2. **两阶段训练对齐**：第一阶段冻结VLA，只训练这个记忆压缩器，用混合数据让它学会怎么压缩；第二阶段冻结压缩器，用少量任务数据微调VLA主体，让它学会怎么利用这些记忆Token做决策。
+- **架构细节**: 
+  - **输入构成**：当前观测Tokens + 语言/本体状态Prompt Tokens + 历史记忆Tokens。
+  - **记忆序列**：前面加一个可学习的 Memory BOS Token，后面跟着历史帧的压缩Token（每帧每个视角仅1个Token）。
+  - **推理机制**：记忆压缩和动作预测解耦。压缩器在后台高频把新帧压成Token存入队列，VLA推理时直接把队列里的Token拼到输入里，不改动VLA原本的推理代码。
+- **核心 Loss**: 
+  - **主 Loss**：仅使用 VLA 原生的**动作预测 Loss (Action Prediction Loss)**。
+  - **辅助任务**：无。没有使用视频重建、对比学习等辅助Loss，纯靠“动作监督 (Action Supervision)”来倒逼记忆Token保留对预测动作有用的视觉细节。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - **数据集**：仿真环境（RMBench等5个任务），真实机器人（按按钮、放回方块、超市扫码3个任务）。
+  - **Baseline**：无记忆VLA（$\pi_{0.5}$, X-VLA），VLM文本记忆（MemER, Mem-0），外部记忆模块（HAMLET, MEM-short）。
+- **评价指标**: 任务成功率（Success Rate）、推理延迟（Latency）、显存占用（GPU Memory）、数据效率（Data Efficiency）。
+- **实验结果**: 
+  - **成功率大幅提升**：仿真平均成功率从 baseline 最高的 32.4% 提升到 **84.0%**；真实机器人平均成功率达到 **98.7%**（baseline 最高仅 34.7%），且在训练时未见过的“超市扫码”任务上也能达到 100%。
+  - **推理效率高**：在 32GB 显存下能塞进 5000 帧历史；在 100ms 实时延迟约束下，能处理约 200 帧历史，历史窗口比 prior work 长 9~40 倍。
+  - **数据效率高**：只用 20% 的训练数据就能打平 SOTA；在真实机器人上，仅用 10 条 demo 微调就能达到 60% 成功率，是 Mem-0 的 3.5 倍。
+
+---
+
+
+### 7. 🔥 [Pelican-VLA 0.5: Attending Before Acting Benefits Generalization] (Pelican-VLA 0.5：先关注再动作有助于泛化)
+- **研究机构**: `Beijing Innovation Center of Humanoid Robotics (X-Humanoid) / 北京具身智能机器人创新中心`
+- **Arxiv ID**: `2607.06655` | [点击跳转](https://arxiv.org/abs/2607.06655)
+
+**0. 论文标题**
+- **英文标题**: Pelican-VLA 0.5: Attending Before Acting Benefits Generalization
+- **中文标题**: Pelican-VLA 0.5：先关注再动作有助于泛化
+- **研究机构**: Beijing Innovation Center of Humanoid Robotics (X-Humanoid) / 北京具身智能机器人创新中心
+
+**1. 整体逻辑**
+- **研究任务**: 提升视觉-语言-动作（VLA）模型在机器人操作任务中的跨场景、跨物体和跨具身泛化能力。
+- **研究动机**: 现有的 VLA 模型在预测动作时，注意力往往很分散（会关注机械臂、背景等无关区域），没有集中在任务相关的目标物体和接触点上。这导致模型容易依赖视觉捷径，换个环境就失效。作者认为，如果能让模型在输出动作前，先强迫它把注意力集中在“该操作哪里”，就能提升泛化性。
+- **本质改动**: 在视觉感知和动作预测之间插入了一组可学习的“推理槽”（Reasoning Slots）作为信息瓶颈。切断动作直接看全局图像的路径，迫使动作生成模块只能从这几个槽里读取信息，从而让模型把操作相关的核心特征压缩到槽里。
+- **技术溯源**: 基于 Qwen3-VL 4B 作为统一骨干网络，动作生成采用 Flow-matching（类似 pi0），视觉动态特征提取使用了 Cosmos-Tokenizer。
+
+**2. 技术拆解**
+- **重点改进**: 
+  1. 引入 Reasoning Slots 瓶颈：默认 32 个可学习 token，插在感知和动作之间。
+  2. 课程瓶颈掩码（Curriculum bottleneck mask）：训练初期允许动作直接看图像，随后逐渐切断这条直连路径，强迫动作只能看 Slots，防止训练崩溃。
+  3. 正交正则化：约束这 32 个 slot 的特征向量尽量正交，防止它们学成一样的东西，保证信息多样性。
+  4. 槽门控生成：用 slot pooling 后的特征去门控未来帧预测的特征，让 slot 不仅包含动作信息，还包含环境动态变化信息。
+- **架构细节**: 
+  - 单一 Qwen3-VL 4B 骨架。输入序列分四段：Prefix（图像和语言 token）、Middle（Cosmos 提取的历史帧潜空间 token）、Slots（32个推理 token）、Suffix（本体状态和加噪的动作序列，长度50）。
+  - 注意力机制：Prefix、Middle、Slots 内部双向注意力；Suffix 是因果注意力。核心是 Suffix 只能 attend 到 Slots，不能直接 attend 到 Prefix 和 Middle。
+  - 推理加速：推理时只需计算一次 Prefix 和 Middle，然后只缓存 32 个 Slots 的 KV cache，动作去噪循环只计算 Suffix，大幅降低计算量。
+- **核心 Loss**: 
+  - 主 Loss：Flow-matching 动作去噪损失（预测动作速度场）。
+  - 辅助任务 1：未来帧生成损失（在 Cosmos 潜空间算 MSE，预测未来画面）。
+  - 辅助任务 2：Slot-语言对比对齐损失（InfoNCE，让 slot 特征和文本指令对齐）。
+  - 辅助任务 3：正交正则化损失（保证 slot 多样性）。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - 预训练数据：6000+ 小时异构机器人数据（包含 AgiBot World, InternData, Galaxea 及自采数据）。
+  - 微调数据：RoboTwin 仿真数据。
+  - Baseline：主流开源 VLA 模型（如 OpenVLA、Octo、pi0 等）。
+- **评价指标**: 
+  - 仿真环境（RoboTwin）中的任务成功率（Clean 和 Randomized 设置）。
+  - 零样本（Zero-shot）泛化成功率（未见场景、未见物体、新具身）。
+  - 注意力可视化（评估动作路径的 attention map 是否聚焦在目标物体和接触区）。
+- **实验结果**: 
+  - 微调后性能：在 RoboTwin Clean 上达到 91.4% 成功率，RoboTwin Randomized 达到 91.0%，是开源 VLA 中的最高平均水平。
+  - 零样本泛化：在没见过的场景和机械臂上取得了非零的成功率（具备了初步的泛化能力）。
+  - 注意力表现：微调前（零样本），Pelican-VLA 0.5 的注意力就已经精准聚焦在指令相关的物体和接触区域，而 baseline 的注意力很分散。微调前后的注意力热力图高度相似，证明微调只是把已经学好的“关注点”转化为“具体动作”，而不是从头教它看哪里。
+
+---
+
+
+### 8. 🔥 [SPEAR: A Simulator for Photorealistic Embodied AI Research] (SPEAR：用于高逼真具身智能研究的模拟器)
+- **研究机构**: `Adobe Research, Intel Labs, NVIDIA, ETH Zurich, Imperial College London`
+- **Arxiv ID**: `2607.06701` | [点击跳转](https://arxiv.org/abs/2607.06701)
+
+**0. 论文标题**
+- **英文标题**: SPEAR: A Simulator for Photorealistic Embodied AI Research
+- **中文标题**: SPEAR：用于高逼真具身智能研究的模拟器
+- **研究机构**: Adobe Research, Intel Labs, NVIDIA, ETH Zurich, Imperial College London
+
+**1. 整体逻辑**
+- **研究任务**: 构建一个用于具身智能研究和合成数据生成的高逼真度、高可编程性、高渲染速度的交互式模拟器。
+- **研究动机**: 现有的基于虚幻引擎（UE）的模拟器存在三个痛点：一是API太少，通常只有几百个手工编写的Python接口；二是数据传输慢，把1080p图像传回Python比UE原生渲染慢20-35倍；三是工程太重，通常是庞大的单体应用或需要魔改UE源码，很难集成到现有项目中。
+- **本质改动**: 放弃手工编写API wrapper，直接通过Python接入UE的C++运行时反射系统（Reflection System）来动态调用底层函数。同时重写了通信和渲染管线，设计了支持异步操作和零拷贝数据传输的事务型编程模型。
+- **技术溯源**: 基于 Unreal Engine (UE)，物理联合仿真基于 MuJoCo，底层RPC通信使用 rpclib，Python绑定使用 nanobind。
+
+**2. 技术拆解**
+- **重点改进**: 
+  1. **直连反射系统**：只要UE的C++代码里加了 `UFUNCTION` 或 `UPROPERTY` 宏，Python端就能直接调用，无需额外写包装代码。
+  2. **事务型编程模型**：引入 `begin_frame` 和 `end_frame` 上下文管理器，把一帧内的操作打包成事务，保证复杂任务图在单帧内确定性执行。
+  3. **异步与零拷贝**：为所有API提供异步变体，避免Python线程阻塞UE的游戏主线程（Game Thread）；NumPy数组在C++和Python间直接共享内存，不做数据拷贝。
+- **架构细节**: 
+  - 采用 Client-Server 架构。Python Client 将用户代码转化为命令流，通过 TCP/IP 发送给运行在 UE 独立线程（Server Thread）上的 C++ Server。
+  - Server 通过线程安全的任务队列与 UE 的 Game Thread 交互，确保任务在帧首和帧尾按序执行。
+  - 自带 Camera Sensor，除了渲染RGB图像，还能直接输出深度、法线、语义/实例ID、材质ID、非漫反射内在图像分解等 Ground Truth。
+- **核心 Loss**: 无（本文为模拟器系统论文，不涉及神经网络训练，无Loss设计）。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - **场景/数据集**：使用 Epic Games 官方的多个大型开源项目，包括 CitySample（城市级场景）、StackOBot、CropoutSample、MetaHumans（高精度人脸）等。
+  - **Baseline**：现有的基于 UE 的模拟器及插件（如 AirSim, UnrealCV+, CARLA 的 UE 实现等）。
+- **评价指标**: 
+  - **可编程性**：暴露给 Python 的 UE 函数数量。
+  - **渲染与传输速度**：1920×1080 分辨率下，图像渲染并传回 Python NumPy 数组的帧率（FPS）。
+  - **代码规模**：实现系统功能所需的核心代码行数。
+- **实验结果**: 
+  - **可编程性**：暴露了超过 14,000 个 UE 函数，比现有模拟器高出一个数量级。
+  - **渲染速度**：1080p 分辨率下达到 73 FPS，比现有 UE 插件快一个数量级，基本消除了数据回传的通信瓶颈。
+  - **易用性与代码规模**：作为模块化插件，只需在 UE 项目文件中加一行声明即可集成；由于直接利用反射系统，免去了大量手写 wrapper 的工作，核心代码量非常精简。
+
+---
+</script>
+            <script>
+                const rawMdElement = document.getElementById('raw-markdown');
+                if (rawMdElement) {
+                    document.getElementById('content').innerHTML = marked.parse(rawMdElement.textContent);
+                    // 渲染后触发公式排版
+                    if (window.MathJax && window.MathJax.typesetPromise) {
+                        window.MathJax.typesetPromise();
+                    }
+                }
+                function copySources() { /* 原代码保持不变 */ }
+            </script>
+        </body>
+        </html>
+        
