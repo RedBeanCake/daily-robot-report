@@ -1,0 +1,148 @@
+
+        <!DOCTYPE html>
+        <html lang="zh-CN">
+        <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>🤖 具身大模型简报 - Mon, 13 Jul 2026 (VLA: 3 of 33 entries)</title>
+            <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.2.0/github-markdown.min.css">
+            <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+            <script>
+                window.MathJax = {
+                    tex: { inlineMath: [['$', '$'], ['\\(', '\\)']], displayMath: [['$$', '$$'], ['\\[', '\\]']] },
+                    options: { skipHtmlTags: ['script', 'style', 'textarea'] }
+                };
+            </script>
+            <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+            <style>
+                .markdown-body { box-sizing: border-box; min-width: 200px; max-width: 980px; margin: 0 auto; padding: 45px; }
+                @media (max-width: 767px) { .markdown-body { padding: 15px; } }
+            </style>
+        </head>
+        <body class="markdown-body">
+            <a href='../index.html' style='margin-bottom:20px; display:block;'>← 返回主索引</a>
+            <h1>🤖 具身大模型简报 - Mon, 13 Jul 2026 (VLA: 3 of 33 entries)</h1>
+            <div id="content"></div>
+            
+            <script type="text/markdown" id="raw-markdown">### 1. 🔥 [CLAP: Direct VLM-to-VLA Adaptation via Language-Action Grounding] (CLAP：通过语言-动作对齐实现VLM到VLA的直接适配)
+- **研究机构**: `Ochanomizu University, University of Tokyo, OMRON SINIC X Corp.`
+- **Arxiv ID**: `2607.08974` | [点击跳转](https://arxiv.org/abs/2607.08974)
+
+**0. 论文标题**
+- **英文标题**: CLAP: Direct VLM-to-VLA Adaptation via Language-Action Grounding
+- **中文标题**: CLAP：通过语言-动作对齐实现VLM到VLA的直接适配
+- **研究机构**: Ochanomizu University, University of Tokyo, OMRON SINIC X Corp.
+
+**1. 整体逻辑**
+- **研究任务**: 将预训练的视觉语言模型（VLM）微调为视觉语言动作模型（VLA），用于机器人机械臂控制。
+- **研究动机**: 现有的VLA微调通常让模型直接输出纯数字的动作token（如离散化的坐标值），这严重偏离了VLM预训练时的自然语言分布（即输出分布不匹配），会破坏VLM原有的语义理解和泛化能力；但如果全用语言描述动作，又缺乏底层控制的精度。
+- **本质改动**: 改变输出表示形式。在生成数字动作token前，先自回归生成一段自然语言的动作描述（如“向前移动3厘米，闭合夹爪”）作为中间条件，引导后续精确动作token的生成。全程不改动VLM网络架构，不加额外的动作解码模块。
+- **技术溯源**: 基于 Qwen3.5 (0.8B, 2B, 4B) 视觉语言基座模型。
+
+**2. 技术拆解**
+- **重点改进**: 将动作预测重构为“语言条件化的动作生成”。通过在数字动作序列前拼接一个语言动作前缀（Language-action prefix），利用自回归的因果注意力机制，让动作token的生成直接依赖于前面的语言规划。
+- **架构细节**: 
+  - **输入**: 当前图像观察和文本指令。
+  - **输出**: 自回归序列。先输出 `<think> ... </think>` 包裹的语言动作描述（由固定模板从真值动作转换而来，如“move back 0.5 cm...”），接着输出离散化的7自由度动作token（每维离散化为1000个bin，预测8步共56个整数token）。
+  - **结构**: 完全复用VLM的backbone、tokenizer和LM Head，不引入任何Action Expert（动作专家模块），不扩充词表。提供0.8B、2B、4B三个尺寸。
+- **核心 Loss**: 仅使用标准的自回归交叉熵损失（Next-token prediction loss），包含语言前缀和动作token两部分，无额外的辅助Loss。论文还测试了一种可选的“动作掩码（Action masking）”数据增强（随机mask部分输入动作让模型重建），但发现对小模型有损，仅对4B模型有轻微提升，非核心设计。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - **数据集**: LIBERO（分布内操作）、LIBERO-PRO（分布外鲁棒性测试，包含物体、位置、指令等扰动）、VLABench（评估基座VLM能力）。
+  - **Baseline**: 主要对比同等数据和训练步数下复现的 VLA-0（直接输出动作token的基线），并列出 OpenVLA、SmolVLA、π0 等作为背景参考。
+- **评价指标**: 任务成功率（Success Rate, %）。
+- **实验结果**: 
+  - **学习效率极高**: 在LIBERO上仅微调1个epoch（8卡训练约6.5小时），2B CLAP 达到 90.8% 的平均成功率，比同等条件下的 VLA-0 绝对提升 14.9%。0.8B 和 4B 也分别提升 13.5% 和 20.7%。
+  - **泛化与鲁棒性更好**: 在 LIBERO-PRO 的分布外测试中，CLAP 显著更鲁棒。2B 模型在各类扰动下的平均成功率比 VLA-0 提升 11.1%，4B 模型在空间视觉扰动上更是提升了 40% 以上。
+  - **能力迁移分析**: 证明了在轻量级模型中，参数规模并非决定迁移效果的唯一因素，2B 模型的综合表现优于 4B，且该方法无需依赖复杂的思维链（CoT）推理即可保持较好的视觉接地能力。
+
+---
+
+
+### 2. 🔥 [Causally Debiased Latent Action Model for Embodied Action Conditioned World Models] (面向具身动作条件世界模型的因果去偏潜在动作模型)
+- **研究机构**: `文本未明确标注（作者包含UCSD等机构学者，涉及AgiBot团队合作）`
+- **Arxiv ID**: `2607.09185` | [点击跳转](https://arxiv.org/abs/2607.09185)
+
+**0. 论文标题**
+- **英文标题**: Causally Debiased Latent Action Model for Embodied Action Conditioned World Models
+- **中文标题**: 面向具身动作条件世界模型的因果去偏潜在动作模型
+- **研究机构**: 文本未明确标注（作者包含UCSD等机构学者，涉及AgiBot团队合作）
+
+**1. 整体逻辑**
+- **研究任务**: 动作条件世界模型（ACWM），即根据当前视觉观察和动作序列，预测未来的视频帧。
+- **研究动机**: 现有的潜在动作模型（LAM）仅依赖视频重建目标训练，导致潜在动作空间混入了背景变化、相机移动等与动作无关的视觉干扰。这使得世界模型在控制时经常失效，例如输入零动作时画面仍在动，或者无法可靠跟随目标动作。
+- **本质改动**: 提出CD-LAM因果去偏框架，通过引入三个去偏目标来微调LAM，强制潜在动作空间只编码具身动作动态，剔除无关的视觉干扰。
+- **技术溯源**: 基于 DreamDojo（LAM-based ACWM）架构，辅助工具使用了 SAM3（做前景分割）和 CoWTracker（做点追踪）。
+
+**2. 技术拆解**
+- **重点改进**: 不改动下游ACWM的骨干网络，仅对上游的LAM进行去偏微调，从源头净化潜在动作空间。
+- **架构细节**: 采用三阶段训练流水线：
+  1. **Stage 1 (LAM去偏微调)**：用1k步微调LAM，优化去偏目标。
+  2. **Stage 2 (ACWM去偏微调)**：用2k步微调ACWM，让其适应去偏后的潜在动作空间。
+  3. **Stage 3 (机器人动作适配)**：训练一个轻量级MLP，将真实的机器人 executable actions 映射到去偏后的潜在空间。
+  实验在 2B 和 14B 两个模型规模上进行了验证。
+- **核心 Loss**: 
+  1. **具身中心重建 Loss**：利用 SAM3 提取前景 mask，在 MSE 重建时给机械臂和交互物体区域分配更高的权重，弱化背景重建。
+  2. **动作中心对比学习 Loss**：基于粗粒度操作原语（如抓取、放置、倒水等）进行对比学习，拉近相同动作的潜在表示，推开不同动作的表示。
+  3. **潜在空间校准 Loss**：包含 Free-bit KL（控制信息容量，防止空间坍缩）和 Zero-transition Loss（强制输入两张相同帧时，输出的潜在动作向量趋近于0）。
+
+**3. 实验结果**
+- **数据集和baseline**: 无标签视频预训练/微调使用 EgoDex（人类操作视频），机器人动作适配使用 AgiBot（真实机器人数据）。对比 Baseline 为 DreamDojo。
+- **评价指标**: 
+  - 视觉保真度：PSNR, SSIM, LPIPS 等。
+  - 动作跟随度：FDCE（Foreground Displacement Chamfer Error，前景位移倒角误差），衡量生成视频与真实视频中前景物体移动轨迹的距离。
+  - 潜在动作偏差诊断：零动作响应、相机平移鲁棒性等。
+- **实验结果**: 
+  1. **动作跟随度大幅提升**：在 2B 和 14B 规模下，FDCE 在 Stage 2 后分别下降 42% 和 26%；在机器人动作适配后进一步下降 35% 和 30%。
+  2. **适配效率极高**：14B 模型仅用 DreamDojo 不到 1/12 的机器人动作适配步数（updates）即追平 baseline，并在 6k 步时实现全面超越。
+  3. **去偏效果显著**：零动作响应误差从 0.527 降至 0.043，彻底解决了输入零动作时模型“自己乱动”的问题，潜在空间对相机平移等无关干扰的鲁棒性也显著增强。
+
+---
+
+
+### 3. 🔥 [GenVid2Robot: From Video Generation to Robot Manipulation via Rigid-Geometric Consistency] (GenVid2Robot：通过刚性-几何一致性从视频生成到机器人操作)
+- **研究机构**: `广东工业大学、利物浦大学、香港理工大学、上海交通大学`
+- **Arxiv ID**: `2607.09191` | [点击跳转](https://arxiv.org/abs/2607.09191)
+
+**0. 论文标题**
+- **英文标题**: GenVid2Robot: From Video Generation to Robot Manipulation via Rigid-Geometric Consistency
+- **中文标题**: GenVid2Robot：通过刚性-几何一致性从视频生成到机器人操作
+- **研究机构**: 广东工业大学、利物浦大学、香港理工大学、上海交通大学
+
+**1. 整体逻辑**
+- **研究任务**: 将视频生成模型生成的视觉动态先验，转化为真实机器人可执行的物理操作轨迹。
+- **研究动机**: 生成的视频在视觉上看起来合理，但缺乏真实的3D度量几何、抓取约束和运动学可行性。直接把视频里的像素运动或物体中心轨迹拷贝给机器人，会导致视觉漂移、非刚性形变和物理执行失败（即“视觉合理不等于物理可执行”）。
+- **本质改动**: 不把生成的视频直接当成机器人演示（Demonstration），而是当成“不确定的2D运动假设”。引入“刚性-几何一致性”验证机制，用首帧真实RGB-D提取的稀疏3D点，去检验视频里的2D运动是否符合刚体SE(3)变换。只有几何上说得通的运动，才结合真实抓取位姿传给机器人。
+- **技术溯源**: 组合了现有的开源/商用工具：VLM（语义提示与筛选）、SAM（部件掩码分割）、Kling 1.6/可灵（视频生成）、CoTracker（长序列点追踪）、OpenCV PnP/RANSAC（位姿求解）。
+
+**2. 技术拆解**
+- **重点改进**: 提出了刚性-几何一致性验证模块（用于过滤不靠谱的生成视频），以及抓取条件下的TCP轨迹诱导（把验证后的相对运动叠加到真实抓取位姿上，而不是直接跟踪物体中心）。
+- **架构细节**: 
+  - **输入**: 首帧RGB-D图像 + 自然语言任务指令。
+  - **阶段1（采样与生成）**: 用VLM生成任务相关的部件提示（如把手、壶嘴），SAM分割掩码，深度感知K-Means采样出稀疏的2D语义锚点并反投影到3D。用Kling 1.6生成多个候选视频，用CoTracker在视频中追踪这些2D锚点。
+  - **阶段2（几何一致性验证）**: 把首帧的3D锚点和视频里追踪到的2D锚点送入PnP/RANSAC，求解帧间的相对SE(3)运动。计算重投影误差，误差过大或追踪丢失的候选视频直接丢弃。
+  - **阶段3（抓取与执行）**: 在掩码约束下选择抓取点，把验证通过的相对SE(3)运动应用到真实的抓取TCP位姿上，生成最终轨迹。执行时加入有界的深度补偿，修正RGB-D噪声和接触位移。
+- **核心 Loss**: 本文是推理Pipeline，无端到端训练Loss。核心的验证指标（相当于过滤条件）是**重投影残差（Reprojection residual）**，即PnP求解后，3D锚点重投影到2D的坐标与CoTracker追踪到的2D坐标之间的像素误差（文中设定均值<5px，最大值<12px为通过阈值）。
+
+**3. 实验结果**
+- **数据集和baseline**: 在真实RM75机械臂上测试，包含倒水、开盖、递工具、扫地4类操作任务。对比Baseline包括基于空间约束的方法、直接提取视频6D轨迹的方法（如RIGVid）和基于可操作光流的方法（如NovaFlow）。
+- **评价指标**: 任务成功率、几何一致性过滤的有效性、运行时间（Runtime）、消融实验（轨迹诊断、深度补偿效果、布局扰动测试）。
+- **实验结果**: GenVid2Robot显著提高了视频引导操作的成功率和可靠性。刚性-几何一致性模块能有效过滤掉那些“视觉合理但物理上非刚性或存在漂移”的废视频；抓取条件诱导和局部深度补偿解决了直接复制物体中心坐标带来的执行偏差。相比直接重放视频轨迹或光流的Baseline，在真实物理环境中的执行成功率明显更高，且不需要提前收集物体特定的物理演示数据或CAD模型。
+
+---
+</script>
+            <script>
+                const rawMdElement = document.getElementById('raw-markdown');
+                if (rawMdElement) {
+                    document.getElementById('content').innerHTML = marked.parse(rawMdElement.textContent);
+                    // 渲染后触发公式排版
+                    if (window.MathJax && window.MathJax.typesetPromise) {
+                        window.MathJax.typesetPromise();
+                    }
+                }
+                function copySources() { /* 原代码保持不变 */ }
+            </script>
+        </body>
+        </html>
+        
