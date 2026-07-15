@@ -1,0 +1,195 @@
+
+        <!DOCTYPE html>
+        <html lang="zh-CN">
+        <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>🤖 具身大模型简报 - Wed, 15 Jul 2026 (VLA: 4 of 41 entries)</title>
+            <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.2.0/github-markdown.min.css">
+            <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+            <script>
+                window.MathJax = {
+                    tex: { inlineMath: [['$', '$'], ['\\(', '\\)']], displayMath: [['$$', '$$'], ['\\[', '\\]']] },
+                    options: { skipHtmlTags: ['script', 'style', 'textarea'] }
+                };
+            </script>
+            <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+            <style>
+                .markdown-body { box-sizing: border-box; min-width: 200px; max-width: 980px; margin: 0 auto; padding: 45px; }
+                @media (max-width: 767px) { .markdown-body { padding: 15px; } }
+            </style>
+        </head>
+        <body class="markdown-body">
+            <a href='../index.html' style='margin-bottom:20px; display:block;'>← 返回主索引</a>
+            <h1>🤖 具身大模型简报 - Wed, 15 Jul 2026 (VLA: 4 of 41 entries)</h1>
+            <div id="content"></div>
+            
+            <script type="text/markdown" id="raw-markdown">### 1. 🔥 [FlowWAM: Optical Flow as a Unified Action Representation for World Action Models] (FlowWAM：将光流作为世界动作模型的统一动作表示)
+- **研究机构**: `中国科学院自动化研究所、中国科学院大学、MBZUAI、阿里巴巴集团等`
+- **Arxiv ID**: `2607.13017` | [点击跳转](https://arxiv.org/abs/2607.13017)
+
+**0. 论文标题**
+- **英文标题**: FlowWAM: Optical Flow as a Unified Action Representation for World Action Models
+- **中文标题**: FlowWAM：将光流作为世界动作模型的统一动作表示
+- **研究机构**: 中国科学院自动化研究所、中国科学院大学、MBZUAI、阿里巴巴集团等
+
+**1. 整体逻辑**
+- **研究任务**: 具身操作策略学习（Manipulation Policy）与动作条件世界模型（Action-Conditioned World Modeling），统称为世界动作模型（WAMs）。
+- **研究动机**: 现有的 WAMs 在利用预训练视频生成器做控制时，动作表示很别扭。数值动作 token 难以跨具身迁移；潜变量动作缺乏密集的空间运动细节；现有的图像空间动作（如射线图、mask）只是静态的空间线索，缺乏跨帧的时序运动结构，无法与视频生成器的视觉先验完美对齐。
+- **本质改动**: 将光流（Optical Flow）作为统一的、视频原生的动作表示。通过 HSV 编码把光流转换成 RGB 格式，与 RGB 视频在同一个双流扩散模型中联合建模，用光流来桥接视频先验和机器人控制。
+- **技术溯源**: 基于预训练的视频扩散生成器（Video Diffusion Transformer），使用 VAE 编码器和 Flow Matching 生成框架。
+
+**2. 技术拆解**
+- **重点改进**: 摒弃了把光流当辅助监督信号或中间变量的做法，直接把光流作为主导的动作模态。模型支持两种工作模式：在策略模式下，模型生成未来光流并解码为可执行动作；在世界模型模式下，输入目标光流序列来引导未来 RGB 视频的生成。
+- **架构细节**: 
+  - **输入输出**: 输入参考图像和语言指令，输出未来 RGB 视频、光流视频以及 N 步动作 chunk。
+  - **模型结构**: 核心是一个双流扩散 Transformer（Dual-stream DiT）。RGB 和光流共用同一个冻结的 VAE 编码器。除了 Patch embedding 和输出头是独立的，中间的 Transformer block 完全共享。在自注意力层，两路 token 拼接起来做联合注意力计算，算完再拆分，各自使用独立的 RoPE。
+  - **动作专家（Action Expert）**: 一个独立的 Transformer，通过交叉注意力读取双流 DiT 每一层的隐藏状态，结合本体感知状态预测动作。训练时会对输入的 latent 加噪，以对齐推理时生成 latent 的分布误差。
+- **核心 Loss**: 
+  - **视频生成 Loss**: RGB 和光流速度场预测的 MSE 损失（Flow Matching），两者加权组合。对光流 Loss 引入了运动感知重加权（motion-aware reweighting），提高运动区域的权重，避免静态背景主导梯度。
+  - **动作预测 Loss**: 动作专家预测动作 chunk 的 Flow Matching 损失。
+  - **无标签预训练**: 支持仅使用视频生成 Loss，在大规模无动作标签的人类第一视角视频上进行预训练，学习通用运动先验。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - **策略评估**: RoboTwin 2.0（50个双臂任务，分 Clean 和 Random 设置）。对比了 VLA（如 π0.5, X-VLA）和 WAM（如 Motus, GigaWorld, X-WAM, Fast-WAM）。
+  - **世界模型评估**: WorldArena。对比了通用视频模型（如 CogVideoX, Veo）和动作条件世界模型（如 IRASim, Ctrl-World）。
+  - **预训练数据**: EgoDex（无动作标签的人类第一视角视频）。
+- **评价指标**: 策略使用成功率（Success Rate）；世界模型使用 EWMScore（综合视觉、运动、一致性、物理准确性和可控性），重点关注轨迹准确度（Traj. Acc.）。
+- **实验结果**: 
+  - **策略**: 在 RoboTwin 上，Clean 设置成功率达 92.94%，Random 设置达 92.14%，全面超越 VLA 和 WAM 基线（例如 X-WAM 为 91.88%/91.78%）。加入无标签视频预训练后，在 Random 设置下的泛化和鲁棒性提升显著。
+  - **世界模型**: 在 WorldArena 上取得 SOTA 的 EWMScore（63.71），轨迹准确度相对提升 18.4%。证明用密集的光流做条件，比用稀疏的动作 token 生成的视频轨迹更准、更可控。
+
+---
+
+
+### 2. 🔥 [ExToken: Structured Exploration for Efficient Vision-Language-Action Reinforcement Fine-tuning] (ExToken：用于高效视觉-语言-动作强化微调的结构化探索)
+- **研究机构**: `Nanyang Technological University (南洋理工大学), ACE Robotics, Zhejiang University (浙江大学), Sun Yat-sen University (中山大学)`
+- **Arxiv ID**: `2607.12931` | [点击跳转](https://arxiv.org/abs/2607.12931)
+
+**0. 论文标题**
+- **英文标题**: ExToken: Structured Exploration for Efficient Vision-Language-Action Reinforcement Fine-tuning
+- **中文标题**: ExToken：用于高效视觉-语言-动作强化微调的结构化探索
+- **研究机构**: Nanyang Technological University (南洋理工大学), ACE Robotics, Zhejiang University (浙江大学), Sun Yat-sen University (中山大学)
+
+**1. 整体逻辑**
+- **研究任务**: VLA（视觉-语言-动作）大模型的强化学习（RL）在线与迭代微调。
+- **研究动机**: 现有的VLA-RL方法依赖纯随机采样进行环境探索，容易导致“动作模式崩溃”（生成的轨迹越来越同质化），造成探索停滞和样本效率极低。作者通过实验发现，用少量高多样性的轨迹训练，效果比用大量同质化轨迹更好，即“轨迹多样性比数据的绝对数量更重要”。
+- **本质改动**: 放弃无结构的随机探索，改用离线演示数据聚类出的“离散行为Token”作为条件输入，强制模型在RL探索时生成不同模式的轨迹（结构化探索）；同时增加一个Token选择器，在推理时根据当前状态自动选出最合适的Token。
+- **技术溯源**: VLA基座基于 OpenVLA-OFT 和 π0.5；RL算法基于 RLinf-GRPO 和 Evo-RL；特征提取使用了预训练视频编码器（Rzenembed）和 SigLIP。
+
+**2. 技术拆解**
+- **重点改进**: 引入 Exploration Token (ExToken) 机制。将随机噪声探索替换为基于离散Token条件输入的结构化探索；并增加 State-conditioned Token Selector，解决推理时不知道选哪个Token的问题。
+- **架构细节**: 
+  - **Token生成**：用预训练视频编码器提取离线演示轨迹的时空特征，做K-means聚类（默认K=6），每个聚类中心定义为一个Exploration Token，代表一种行为模式。
+  - **预热阶段（SFT Warm-up）**：把Token拼在输入序列末尾的embedding层，用离线数据做监督微调，让VLA学会“看到特定Token就执行对应行为”。
+  - **RL探索阶段**：均匀随机采样一个Token拼在输入前面，强制VLA按该Token对应的模式去探索环境，收集rollout。
+  - **Token Selector**：用SigLIP编码初始图像和语言指令，经过MLP输出K个Token的概率分布。
+- **核心 Loss**: 
+  - **VLA策略Loss**：标准的RL损失（如GRPO的优化目标）。
+  - **Token Selector Loss**：使用 REINFORCE 算法（策略梯度），以整条轨迹的Reward作为回报，联合优化Selector和VLA策略（双层优化）。推理时Selector直接用 argmax 输出确定性的Token。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - **仿真**：LIBERO的4个子集（Spatial, Object, Goal, Long）。对比 OpenVLA, OpenVLA-OFT, GRAPE, TGRPO, RLinf-GRPO 等方法。
+  - **真机**：叠衣服、擦桌子、倒水、插笔4个任务。对比 π0.5 和 Evo-RL。
+- **评价指标**: 任务成功率（Success Rate），受限交互预算下的样本效率（如仿真每步512条，真机每轮20条），以及泛化能力（换物体、换背景、换光照）。
+- **实验结果**: 
+  - **仿真**：在严格限制交互数据量（每步仅512条轨迹）的情况下，ExToken平均成功率达到98.2%，比最强baseline RLinf-GRPO（96.8%）高1.4%。在较难的LIBERO-Long上从95.2%提升到97.8%，且收敛速度明显更快。
+  - **真机**：在极少交互（每轮仅收集20条轨迹）下，ExToken平均成功率比Evo-RL高6.25%（例如叠衣服任务从90%提升到95%）。在泛化测试中（换物体/背景/光照），ExToken的性能下降控制在5%-10%，而baseline通常会下降15%-25%，鲁棒性显著更好。
+
+---
+
+
+### 3. 🔥 [VistaVLA: Geometry- and Semantic-Aware 3D Gaussian-Grounded VLA for Robotic Manipulation] (VistaVLA：面向机器人操作的几何与语义感知3D高斯锚定VLA模型)
+- **研究机构**: `Nanyang Technological University (NTU), A*STAR Institute for Infocomm Research (I2R)`
+- **Arxiv ID**: `2607.12356` | [点击跳转](https://arxiv.org/abs/2607.12356)
+
+**0. 论文标题**
+- **英文标题**: VistaVLA: Geometry- and Semantic-Aware 3D Gaussian-Grounded VLA for Robotic Manipulation
+- **中文标题**: VistaVLA：面向机器人操作的几何与语义感知3D高斯锚定VLA模型
+- **研究机构**: Nanyang Technological University (NTU), A*STAR Institute for Infocomm Research (I2R)
+
+**1. 整体逻辑**
+- **研究任务**: 视觉-语言-动作（VLA）模型在机器人操作任务中的应用。
+- **研究动机**: 现有的VLA模型主要依赖2D图像输入，缺乏显式的场景级3D表示，在处理复杂的空间布局和几何约束时容易失败。虽然部分工作引入了深度图或点云，但这些仅提供低层几何结构，缺乏3D空间中的高层语义对齐（semantic grounding），导致模型难以进行视角不变的 spatial reasoning。
+- **本质改动**: 用3D高斯（3DGS）构建同时包含几何和语义的3D场景表示，并通过一个压缩机制将十几万个高斯点压缩成64个紧凑的上下文token，作为3D空间先验注入到VLA策略中。
+- **技术溯源**: 策略基座基于 VLA-Adapter (0.5B)；2D视觉特征提取基于 SigLIP2 和 DINOv2-Large；3D场景表示基于 3D Gaussian Splatting (3DGS) 和 DepthSplat。
+
+**2. 技术拆解**
+- **重点改进**: 
+  1. 将2D视觉-语言特征 lift 到3D高斯基元上，形成多视角一致的3D语义token。
+  2. 提出 Merge-then-Query (MtQ) 机制，解决3D高斯点数量庞大（约 $10^5$ 个）导致VLA推理计算量过大的问题，将其高效压缩为固定长度的紧凑token。
+- **架构细节**: 
+  - **Stage I (3D表示构建)**：先用自编码器将2176维的 SigLIP2+DINOv2 特征压缩到128维。然后分两步训练3DGS：第一步用RGB和深度监督稳定几何；第二步将128维 teacher 特征蒸馏到高斯点上。推理时，在线从当前RGB和相机位姿重建3DGS。
+  - **Stage II (Token压缩与注入)**：先进行无参数压缩，通过 stride-4 池化和基于 Morton 码的合并，将10万个 token 降到约1000个；然后用64个可学习的 query token 通过两层 Transformer decoder 做交叉注意力，生成最终的64个3D上下文 token。
+  - **动作生成**：将 2D图像token、语言指令token、64个3D GS token 和 action query token 拼接，输入 VLA-Adapter 进行自回归动作预测。
+- **核心 Loss**: 
+  - **3DGS训练**：阶段一使用 RGB重建Loss + 深度重建Loss；阶段二增加 特征蒸馏Loss（L2 Loss）。
+  - **策略训练**：动作回归的 L1 Loss。无额外的辅助任务。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - **真实世界**：7个操作任务（如放海绵、叠盒子、扔垃圾等），以及带有深度和位置扰动的 OOD 测试。对比方法包括 VLA-Adapter, VLA-Adapter+Depth, $\pi_{0.5}$ (3B), SmolVLA (0.5B)。
+  - **仿真**：LIBERO 标准套件（Spatial, Object, Goal, Long）和 LIBERO-Pro-Swap（空间 OOD 场景）。对比方法包括 OpenVLA, $\pi_0$, GR00T N1, SmolVLA 等。
+- **评价指标**: 任务成功率（Success Rate, %）。
+- **实验结果**: 
+  - **真实世界**：7个任务的平均成功率比 VLA-Adapter baseline 提升 22.8%。在深度扰动测试中，成功率从 6/10 提升到 9/10；在位置扰动测试中，从 0/10 提升到 3/10（所有 baseline 均失败）。
+  - **仿真**：在标准 LIBERO 上平均成功率达到 96.05%（无大规模预训练方法中最高）；在空间 OOD 的 LIBERO-Pro-Swap 上，成功率从 baseline 的 1.7% 大幅提升至 12.2%。
+
+---
+
+
+### 4. 🔥 [ABot-AgentOS: A General Robotic Agent OS with Lifelong Multi-modal Memory] (ABot-AgentOS：具有终身多模态记忆的通用机器人智能体操作系统)
+- **研究机构**: `AMAP CV Lab (高德地图CV实验室)`
+- **Arxiv ID**: `2607.10350` | [点击跳转](https://arxiv.org/abs/2607.10350)
+
+**0. 论文标题**
+- **英文标题**: ABot-AgentOS: A General Robotic Agent OS with Lifelong Multi-modal Memory
+- **中文标题**: ABot-AgentOS：具有终身多模态记忆的通用机器人智能体操作系统
+- **研究机构**: AMAP CV Lab (高德地图CV实验室)
+
+**1. 整体逻辑**
+- **研究任务**: 长程具身智能体的任务规划、执行控制、长期记忆与跨具身形态泛化。
+- **研究动机**: 现有的VLM/VLA模型在感知和动作预测上表现不错，但在实际物理世界的长程任务中，缺乏一个通用的中间运行时层（Runtime layer）来进行任务拆解、工具调用、执行验证和长期记忆。现有系统存在推理与执行强耦合、跨机器人形态泛化难、以及缺乏持久多模态记忆的问题。
+- **本质改动**: 提出ABot-AgentOS系统，在底层控制器之上构建通用Agent层。引入Agent Harness（解耦高层规划、局部执行与多阶段验证）和通用多模态图记忆系统（将多模态经验结构化存图，并支持基于失败诊断的终身自我进化）。
+- **技术溯源**: 基于VLM（视觉语言模型）和LLM（大语言模型），结合ReAct框架，采用端云协同架构（边缘小模型+云端大模型）。
+
+**2. 技术拆解**
+- **重点改进**: 
+  1. **Agent Harness解耦执行**：主LLM负责场景条件规划；Skill Runner作为子Agent处理局部连续动作（如导航避障），隔离底层琐碎反馈以防污染主上下文；Verifier在运行中、技能结束和任务完成时进行三阶段验证，防止机器人陷入局部死循环或过早终止。
+  2. **多模态图记忆与自我进化**：不存储原始视频或长文本，而是将经历转化为带类型的节点和边（实体、空间、时间、来源等）。任务结束后，系统诊断记忆检索和回答的失败原因，生成安全的修正规则（evo-assets），仅在后续任务中应用，防止数据泄露并实现终身学习。
+  3. **端云协同路由**：边缘端小模型处理低延迟常规交互，复杂长程推理动态路由给云端大模型，平衡延迟与成本。
+- **架构细节**: 
+  输入为多模态传感器数据（相机、麦克风等）。核心为双LLM架构（边缘Tiny LLM + 云端Large LLM）。技能库采用插件式设计（操作、导航、运动等），以适配不同形态的机器人（如人形、四足狗、机械臂）。记忆系统分为边缘私有记忆和云端共享记忆。针对部署的小模型，采用“文本环境构建 -> 教师轨迹蒸馏SFT -> 强化学习”的训练流水线。
+- **核心 Loss**: 
+  本文侧重系统架构，无传统视觉重建Loss。小模型训练阶段主要包括：SFT阶段的交叉熵损失（Cross-Entropy Loss），以及RL阶段基于LLM-as-a-Judge提供的奖励信号（Reward），并引入Meta-Judge机制来验证和校准奖励的准确性。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - **Agent评估**：自研EmbodiedWorldBench（16个室内/外/混合场景，4个难度，200+长程任务），对比单控制器基线（Single-controller baseline）。
+  - **记忆评估**：使用LoCoMo、OpenEQA、Mem-Gallery、NExT-QA、EgoLife 5个公开数据集，对比基础混合检索器（Base Hybrid Retriever）等方法。
+- **评价指标**: 
+  - **Agent评估**：任务成功率（Task success）和目标完成率（Goal completion）。
+  - **记忆评估**：问答准确率（如EM-EQA、Acc@All等）。
+- **实验结果**: 
+  - **Agent能力**：在EmbodiedWorldBench子集上，ABot-AgentOS的任务成功率和目标完成率均优于单控制器基线。
+  - **记忆能力（静态版本）**：在LoCoMo达到87.5，OpenEQA (EM-EQA) 达到59.9，Mem-Gallery达到88.6，NExT-QA (Acc@All) 达到76.5。
+  - **自我进化增益**：引入失败驱动的自我进化后，LoCoMo提升至88.7，OpenEQA提升至60.4，Mem-Gallery提升至89.0，证明了持续改进机制的有效性。
+
+---
+</script>
+            <script>
+                const rawMdElement = document.getElementById('raw-markdown');
+                if (rawMdElement) {
+                    document.getElementById('content').innerHTML = marked.parse(rawMdElement.textContent);
+                    // 渲染后触发公式排版
+                    if (window.MathJax && window.MathJax.typesetPromise) {
+                        window.MathJax.typesetPromise();
+                    }
+                }
+                function copySources() { /* 原代码保持不变 */ }
+            </script>
+        </body>
+        </html>
+        
