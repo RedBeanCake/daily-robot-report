@@ -1,0 +1,242 @@
+
+        <!DOCTYPE html>
+        <html lang="zh-CN">
+        <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>🤖 具身大模型简报 - Thu, 16 Jul 2026 (VLA: 5 of 64 entries)</title>
+            <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.2.0/github-markdown.min.css">
+            <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+            <script>
+                window.MathJax = {
+                    tex: { inlineMath: [['$', '$'], ['\\(', '\\)']], displayMath: [['$$', '$$'], ['\\[', '\\]']] },
+                    options: { skipHtmlTags: ['script', 'style', 'textarea'] }
+                };
+            </script>
+            <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+            <style>
+                .markdown-body { box-sizing: border-box; min-width: 200px; max-width: 980px; margin: 0 auto; padding: 45px; }
+                @media (max-width: 767px) { .markdown-body { padding: 15px; } }
+            </style>
+        </head>
+        <body class="markdown-body">
+            <a href='../index.html' style='margin-bottom:20px; display:block;'>← 返回主索引</a>
+            <h1>🤖 具身大模型简报 - Thu, 16 Jul 2026 (VLA: 5 of 64 entries)</h1>
+            <div id="content"></div>
+            
+            <script type="text/markdown" id="raw-markdown">### 1. 🔥 [Generalizable VLA Finetuning via Representation Anchoring and Language-Action Alignment] (基于表征锚定与语言-动作对齐的可泛化VLA微调)
+- **研究机构**: `University of Illinois Urbana-Champaign (UIUC), Texas A&M University, University of California, Irvine (UCI)`
+- **Arxiv ID**: `2607.13429` | [点击跳转](https://arxiv.org/abs/2607.13429)
+
+**0. 论文标题**
+- **英文标题**: Generalizable VLA Finetuning via Representation Anchoring and Language-Action Alignment
+- **中文标题**: 基于表征锚定与语言-动作对齐的可泛化VLA微调
+- **研究机构**: University of Illinois Urbana-Champaign (UIUC), Texas A&M University, University of California, Irvine (UCI)
+
+**1. 整体逻辑**
+- **研究任务**: 视觉-语言-动作（VLA）模型的微调，用于机器人操作策略学习。
+- **研究动机**: 现有的行为克隆（BC）微调会破坏预训练VLM的视觉和语义表征（灾难性遗忘），导致模型在物体位置或颜色改变时失效。常见的联合训练（co-training）方法虽然加入了VQA等视觉语言任务，但语言loss和动作loss作用在不同的观测数据上，导致“语言-动作不对齐”（例如动作头预测向右移动，语言头却预测向左）。
+- **本质改动**: 提出 Anchor-Align 方法，在标准BC loss之外增加两个目标：1）用冻结的预训练VLM做逐层特征蒸馏，防止表征漂移；2）把连续动作转换成离散的运动方向标签，在同一个观测上联合训练语言和动作预测，解决不对齐问题。
+- **技术溯源**: 基于 VLA-Adapter 和 StarVLA 架构，底层大模型基座使用的是 Qwen2.5-0.5B 和 Qwen2.5-VL。
+
+**2. 技术拆解**
+- **重点改进**: 
+  1. 视觉-语言锚定（Anchoring）：在微调时保留一个冻结的原始VLM作为教师模型，计算可训练backbone和冻结VLM在每一层Transformer decoder的hidden states的L2距离，强制保留预训练特征。
+  2. 语言-动作对齐（Alignment）：将专家演示中的连续动作（平移部分）进行平均和过滤，离散化为6个方向词（上、下、左、右、前、后）。提取VLM最后一层最后一个指令token的hidden state，通过投影层和冻结的LM head预测该方向词。
+- **架构细节**: 
+  - 基础架构测试了两种：VLA-Adapter（Qwen2.5-0.5B + 回归动作头）和 StarVLA（Qwen2.5-VL + flow-matching动作头）。
+  - 输入包含视觉（DINOv2和SigLIP特征拼接，双视角共512个patches）、文本指令和机器人本体感受状态。
+  - 微调采用 LoRA（rank=64）应用于所有层。
+- **核心 Loss**: 
+  - 总Loss = 动作Loss + 锚定Loss + 对齐Loss。
+  - 动作Loss：回归头用L1，flow-matching头用L2。
+  - 锚定Loss：所有decoder层hidden states的均方误差（MSE）。
+  - 对齐Loss：方向词预测的交叉熵（Cross-Entropy）。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - 数据集：LIBERO（标准版、PRO版、Plus版）和 CALVIN（长序列任务）。
+  - Baseline：OpenVLA-OFT、VLA-Adapter、MolmoAct、UniVLA、OpenHelix等多种主流VLA和联合训练方法。
+- **评价指标**: 
+  - 任务成功率（Success Rate）。
+  - CALVIN中的平均连续完成指令数（Len）。
+- **实验结果**: 
+  - LIBERO-PRO（OOD语义泛化）：在物体位置交换（Pos. Swap）这个最难的任务上，其他baseline成功率基本在0%~2.3%，Anchor-Align达到22.6%。整体平均成功率从61.0%提升至71.9%。
+  - LIBERO-Plus（感知鲁棒性）：在背景纹理、传感器噪声等扰动下表现最好，平均成功率从85.1%提升至90.3%。
+  - CALVIN（长序列任务）：5个指令连续完成的成功率从73.1%（VLA-Adapter）提升至77.9%，平均完成长度达到4.5。
+  - 真机实验（xArm7）：在两种不同的VLA架构上，真机任务成功率分别从28%提升至54%，以及从37%提升至60%。
+
+---
+
+
+### 2. 🔥 [Semantic Anchoring for Robotic Action Representations] (面向机器人动作表征的语义锚定)
+- **研究机构**: `Peking University (北京大学), Eastern Institute of Technology, Ningbo (宁波东方理工大学), Shanghai Jiao Tong University (上海交通大学)`
+- **Arxiv ID**: `2607.13597` | [点击跳转](https://arxiv.org/abs/2607.13597)
+
+**0. 论文标题**
+- **英文标题**: Semantic Anchoring for Robotic Action Representations
+- **中文标题**: 面向机器人动作表征的语义锚定
+- **研究机构**: Peking University (北京大学), Eastern Institute of Technology, Ningbo (宁波东方理工大学), Shanghai Jiao Tong University (上海交通大学)
+
+**1. 整体逻辑**
+- **研究任务**: 视觉-语言-动作（VLA）模型的微调与泛化（机器人策略学习）。
+- **研究动机**: VLA模型在少量机器人演示数据上微调时，原本从预训练VLM继承的丰富语义结构会被破坏（即“动作-指令对齐”退化）。这会导致模型走捷径死记硬背，严重损害其在分布外（OOD）场景下的泛化能力。
+- **本质改动**: 在训练时引入一个即插即用的辅助对齐模块，将VLA中间层的动作表征与冻结的预训练编码器（如EgoHOD）的语义空间进行对比对齐，并将特征解耦为“语义”和“物理细节”两个独立通道。推理时直接丢弃所有辅助模块，实现零额外推理开销。
+- **技术溯源**: 基于 π0（flow-matching VLA）和 SpatialVLA（自回归VLA）等基座模型，对齐目标使用了 EgoHOD、Qwen3-VL-Embedding、CLIP 等预训练视觉-语言/文本编码器。
+
+**2. 技术拆解**
+- **重点改进**: 
+  1. **问题诊断**：通过探针测试证实，微调过程中动作特征与指令语义的对齐度会持续下降，且该对齐度与OOD成功率高度正相关。
+  2. **语义锚定**：在VLA中间层（如第10层）提取动作token特征，通过交叉注意力聚合后，与冻结编码器的指令特征做对比学习，强制动作表征保留预训练的语义结构。
+  3. **共享-私有分解**：为了解决“语义对齐要求忽略表面差异”与“动作预测要求敏感于物理细节”的冲突，将特征解耦为共享通道（用于语义对齐）和私有通道（保留执行细节），避免两个目标互相干扰。
+- **架构细节**: 
+  - **输入输出**：输入视觉观测和语言指令，输出动作序列。
+  - **模型结构**：在VLA backbone的中间层引出hidden states。解耦模块包含两个MLP（分别提取共享和私有特征）和一个解码器（重建原特征）。对齐模块使用交叉注意力聚合共享特征，再经过MLP投影头计算对比损失。
+  - **推理阶段**：所有对齐和解耦的辅助模块（即论文图中的虚线框部分）全部丢弃，推理计算图与原始baseline完全一致，不增加任何推理负担。
+- **核心 Loss**: 
+  - **主 Loss**：动作预测Loss（自回归模型的交叉熵，或flow-matching模型的回归loss）。
+  - **辅助 Loss**：
+    1. **对比对齐Loss**：双向InfoNCE，拉近共享通道特征与冻结编码器的指令特征。
+    2. **重建Loss**：MSE加尺度不变项，确保共享和私有特征相加能还原中间层的原始特征。
+    3. **去相关Loss**：角度惩罚，强制共享和私有通道正交，防止特征重新纠缠。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - **数据集**：仿真使用 LIBERO（同分布小数据）和 SimplerEnv（基于BridgeData V2的跨域泛化）；真机使用自采的双臂机器人数据（4个任务族，包含5个OOD泛化轴）。
+  - **Baseline**：π0, SpatialVLA, OpenVLA, Octo, ACT, Diffusion Policy。
+- **评价指标**: 任务成功率（Success Rate, %），包括同分布（ID）和分布外（OOD，如语言、位置、物体、视觉、任务组合泛化）成功率。
+- **实验结果**: 
+  - **仿真**：在LIBERO上，π0+Ours 平均成功率从89.3%提升到92.4%（+3.1%）；在SimplerEnv上，π0 从35.4%提升到41.7%（+6.3%），SpatialVLA 从43.8%提升到51.0%（+7.2%）。
+  - **真机**：在4个同分布任务上，π0+Ours 平均成功率从51.3%提升到70.0%（+18.7%）；在5个OOD泛化轴上，平均成功率从49.5%提升到71.0%（+21.5%），尤其在位置偏移和未见过的任务组合泛化上提升最为明显。
+
+---
+
+
+### 3. 🔥 [A Multi-view Multimodal Driving World Model for Interactive Object Manipulation and Minute-long Streaming] (用于交互式物体操作和分钟级流式生成的多视角多模态驾驶世界模型)
+- **研究机构**: `美团、中科院自动化所、北京理工大学`
+- **Arxiv ID**: `2607.14005` | [点击跳转](https://arxiv.org/abs/2607.14005)
+
+**0. 论文标题**
+- **英文标题**: A Multi-view Multimodal Driving World Model for Interactive Object Manipulation and Minute-long Streaming
+- **中文标题**: 用于交互式物体操作和分钟级流式生成的多视角多模态驾驶世界模型
+- **研究机构**: 美团、中科院自动化所、北京理工大学
+
+**1. 整体逻辑**
+- **研究任务**: 自动驾驶场景下的多视角视频与LiDAR联合生成，重点支持细粒度的物体级控制（包括几何位置与视觉外观）以及长达一分钟的稳定流式生成。
+- **研究动机**: 现有的驾驶世界模型对物体的控制大多局限于3D框等几何信息，无法修改物体外观，导致难以构建长尾或罕见场景的闭环仿真；此外，自回归生成长视频容易出现误差累积和画面崩溃，且推理延迟较高。
+- **本质改动**: 将纯几何的物体控制升级为融合3D框、图像外观和文本描述的“物体Token”；将双向视频生成模型通过多阶段蒸馏转化为4步去噪的因果自回归模型；引入基于VLM的自动化可控性评估流水线。
+- **技术溯源**: 基于 Wan2.1-T2V（双向文本到视频DiT基座）、SigLIP-V2（图像特征提取）、umT5（文本编码）。
+
+**2. 技术拆解**
+- **重点改进**: 
+  1. 细粒度物体控制：设计Object Token，融合几何与外观语义，通过Cross-attention注入模型，实现对外观和位置的显式控制。
+  2. 长时序流式生成：设计5阶段训练流程（双向中训练、Teacher-Forcing因果适应、少步学生ODE初始化、Self-Forcing与非对称DMD、长视频迭代微调），将去噪步数压缩至4步。
+  3. 长尾场景定制：通过少样本后训练（结合LoRA）和视觉参考条件生成（如首帧编辑、物体补全）来合成罕见场景数据。
+- **架构细节**: 
+  - 骨干网络为共享的DiT。输入包括多视角视频、LiDAR距离图（Range map，与图像共用VAE编码到统一隐空间）以及各类控制信号（自车姿态、BEV地图、物体Token等）。
+  - DiT block内包含Self-attention处理时空依赖，以及两层Cross-attention：一层用于注入控制信号，另一层用于多视角特征聚合（每5层插入一次跨视角attention）。
+- **核心 Loss**: 
+  - 主Loss为 Rectified Flow 的速度场预测Loss。
+  - 蒸馏阶段使用非对称分布匹配蒸馏（Asymmetric DMD）和 Self-Forcing 相关的Loss，用于减少去噪步数并缓解自回归生成的曝光偏差。
+
+**3. 实验结果**
+- **数据集和baseline**: 使用自建的10小时大规模同步多视角相机和LiDAR驾驶数据集（包含长尾和复杂场景）；对比Baseline为现有的驾驶世界模型方法。
+- **评价指标**: 生成质量（FID/FVD）、可控性（基于VLM评估的场景条件依从度、物体视觉/文本保真度、跨视角一致性）、下游感知任务指标（长尾目标Recall、常规目标mAP）、推理速度（FPS）。
+- **实验结果**: 
+  - 生成质量：FID/FVD 从 baseline 的 41.7/346.1 降至 34.8/288.7。
+  - 可控性：物体级视觉和文本保真度从 13.4% 和 11.6% 大幅提升至 62.7% 和 59.1%；跨视角一致性从 78.9% 提升至 84.5%。
+  - 推理与长时序：支持60秒稳定自回归生成；在8张A100上，生成6个相机视角+1个LiDAR流（424×800分辨率，4步去噪），速度达到 2.3 FPS。
+  - 下游增强：用500条合成的“运树卡车”长尾数据增强5万条真实数据，该长尾目标的召回率从 1.0% 提升至 69.7%，常规集mAP基本不掉点（66.7% -> 66.8%）。
+
+---
+
+
+### 4. 🔥 [WANDA: learning open-World mobile mANipulation from one demonstration via a synthetic DAta engine] (WANDA：通过合成数据引擎从单条演示学习开放世界移动操作)
+- **研究机构**: `UC Berkeley (加州大学伯克利分校)`
+- **Arxiv ID**: `2607.13154` | [点击跳转](https://arxiv.org/abs/2607.13154)
+
+**0. 论文标题**
+- **英文标题**: WANDA: learning open-World mobile mANipulation from one demonstration via a synthetic DAta engine
+- **中文标题**: WANDA：通过合成数据引擎从单条演示学习开放世界移动操作
+- **研究机构**: UC Berkeley (加州大学伯克利分校)
+
+**1. 整体逻辑**
+- **研究任务**: 开放世界中的移动操作（Mobile Manipulation）策略学习，重点解决空间泛化、长程任务鲁棒性和跨场景泛化问题。
+- **研究动机**: 当前主流的遥操作（Teleoperation）和UMI等数据收集方法太费人力和成本，很难规模化。为了突破人工收集数据的瓶颈，需要最大化利用单条人类演示的价值，通过自动生成合成数据来解决数据稀缺问题。
+- **本质改动**: 提出WANDA合成数据引擎。只需一条真实的RGBD演示，就能通过3D重建、轨迹重排、状态扩展和背景替换，自动生成海量照片级真实的合成操作数据，用来训练下游策略。
+- **技术溯源**: 背景重建和渲染基于 3D Gaussian Splatting (3DGS)；数据收集范式对标 UMI (Universal Manipulation Interface)；轨迹拼接使用了常规的全身运动规划 (Whole-body motion planning)。
+
+**2. 技术拆解**
+- **重点改进**: 构建了一个从“单条真实演示”到“海量高多样性合成数据”的自动化生成管线，替代高昂的人工数据收集。
+- **架构细节**: 
+  - **输入**: 单条源RGBD演示数据。
+  - **处理流程**:
+    1. **场景与轨迹重建**: 利用3D高斯溅射重建背景，并提取机器人-物体的交互轨迹作为世界基底。
+    2. **轨迹重排与链接**: 将包含密集接触的交互片段重新排布到广泛的空间配置中，利用全身运动规划将其连接成新的完整轨迹。
+    3. **纠正性状态扩展 (Corrective State Expansion)**: 在移动操作的不同阶段，主动增加机器人和物体的状态多样性（如位置、姿态扰动），以提升长程任务的容错率和鲁棒性。
+    4. **跨环境合成**: 将上述轨迹放置到由日常照片生成的多样化3D场景中，实现跨环境泛化。
+    5. **逼真观测渲染**: 将渲染出的机器人和物体3D网格与3DGS背景进行合成，输出照片级真实的图像观测。
+  - **输出**: 大规模合成的照片级RGB观测及对应的机器人动作轨迹。
+- **核心 Loss**: 摘要未提及具体Loss。本文核心是数据生成引擎（Data Engine），下游策略训练通常使用标准的行为克隆（Behavior Cloning, BC）Loss（如MSE或交叉熵）。
+
+**3. 实验结果**
+- **数据集和baseline**: 在广泛的仿真和真实世界多场景任务中评估。对比基线主要为直接使用单条真实演示训练的策略，以及传统人工收集大量数据（如遥操作、UMI）训练的模型。
+- **评价指标**: 任务成功率（Success Rate）。核心考察三个维度：长程鲁棒性、空间泛化（物体/目标位置变化）、跨环境泛化（背景/场景变化），以及跨具身零样本迁移成功率。
+- **实验结果**: 
+  - 仅凭 **1条真实演示**，WANDA合成的数据训练出的策略就具备了长程鲁棒性、大范围空间泛化和跨环境泛化能力，效果可媲美耗费大量人力收集数据的基线。
+  - 验证了跨具身（Cross-embodiment）数据生成能力：在另一个物理形态完全不同的移动操作机器人上，实现了 **零样本（Zero-shot）** 部署并成功完成任务。
+
+---
+
+
+### 5. 🔥 [REAL: An Agentic Framework for Open-World Mobile Manipulation（注：摘要未直接提供完整标题，此为基于摘要核心内容提取）] (REAL：面向开放世界移动操作的智能体框架)
+- **研究机构**: `原文摘要未明确提及（需查阅原文确认）`
+- **Arxiv ID**: `2607.13653` | [点击跳转](https://arxiv.org/abs/2607.13653)
+
+**0. 论文标题**
+- **英文标题**: REAL: An Agentic Framework for Open-World Mobile Manipulation（注：摘要未直接提供完整标题，此为基于摘要核心内容提取）
+- **中文标题**: REAL：面向开放世界移动操作的智能体框架
+- **研究机构**: 原文摘要未明确提及（需查阅原文确认）
+
+**1. 整体逻辑**
+- **研究任务**: 开放世界中的长视野移动操作（Mobile Manipulation），具体包括主动探索、视觉定位、关节物体操作和交互式意图澄清。
+- **研究动机**: 现有方法严重依赖模拟器的特权状态（上帝视角）或假设用户给的指令绝对清晰完整。这导致在真机部署时，面临感知噪声和指令模糊等现实问题，Sim-to-Real 差距很大。
+- **本质改动**: 提出 REAL 框架，废除模拟器特权状态，改用与真机一致的纯视觉 API；引入“模拟用户”让机器人能主动提问以澄清模糊指令；配套提出了分层训练流水线（数据收集 -> SFT -> 在线 RL）和 REAL-Bench 评测基准。
+- **技术溯源**: 基于视觉语言模型（VLM），摘要未明确具体开源基座，但实验对比了主流商业闭源 VLM。
+
+**2. 技术拆解**
+- **重点改进**: 
+  1. **环境交互**：去掉特权状态，仅依靠传感器数据（视觉）构建环境 API，保证仿真和真机输入严格一致。
+  2. **意图澄清**：加入模拟用户（Simulated User），当智能体遇到模糊指令时，可主动发起 Human-in-the-loop 交互来确认意图。
+  3. **训练流程**：采用分层训练，先用 SFT 对齐工具调用和基础推理能力，再用在线 RL 优化长视野下的探索策略。
+- **架构细节**: 
+  - **输入**：视觉观测图像、用户自然语言指令。
+  - **输出**：机器人底层控制动作、向用户提问的交互文本。
+  - **结构**：基于 VLM 的智能体架构，具备工具调用（Tool-use）和开放词汇推理能力。
+- **核心 Loss**: 摘要未提供具体数学公式。SFT 阶段主要优化语言生成和动作预测的常规 Loss（对齐工具使用和推理）；在线 RL 阶段基于任务成功率和探索效率设计 Reward 函数。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - **数据集**：自建的 REAL-Bench（包含 241 个仿真任务，涵盖探索、视觉干扰、关节操作、交互澄清）以及 60 个真实物理家庭场景。
+  - **Baseline**：领先的商业闭源 VLM（摘要未点名具体型号）。
+- **评价指标**: 任务成功率（Success Rate）。
+- **实验结果**: 
+  - **仿真测试**：在 REAL-Bench 的交互任务上达到 56.9% 的成功率，超过主流商业闭源 VLM。
+  - **真机部署**：在物理双臂移动机器人上，零样本迁移到未见过的家庭场景，60 个真实 Episode 的端到端成功率达到 78.3%，证明其 Sim-to-Real 一致性设计有效弥合了现实差距。
+
+---
+</script>
+            <script>
+                const rawMdElement = document.getElementById('raw-markdown');
+                if (rawMdElement) {
+                    document.getElementById('content').innerHTML = marked.parse(rawMdElement.textContent);
+                    // 渲染后触发公式排版
+                    if (window.MathJax && window.MathJax.typesetPromise) {
+                        window.MathJax.typesetPromise();
+                    }
+                }
+                function copySources() { /* 原代码保持不变 */ }
+            </script>
+        </body>
+        </html>
+        
