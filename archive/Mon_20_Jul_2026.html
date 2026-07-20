@@ -1,0 +1,120 @@
+
+        <!DOCTYPE html>
+        <html lang="zh-CN">
+        <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>🤖 具身大模型简报 - Mon, 20 Jul 2026 (VLA: 2 of 46 entries)</title>
+            <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.2.0/github-markdown.min.css">
+            <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+            <script>
+                window.MathJax = {
+                    tex: { inlineMath: [['$', '$'], ['\\(', '\\)']], displayMath: [['$$', '$$'], ['\\[', '\\]']] },
+                    options: { skipHtmlTags: ['script', 'style', 'textarea'] }
+                };
+            </script>
+            <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+            <style>
+                .markdown-body { box-sizing: border-box; min-width: 200px; max-width: 980px; margin: 0 auto; padding: 45px; }
+                @media (max-width: 767px) { .markdown-body { padding: 15px; } }
+            </style>
+        </head>
+        <body class="markdown-body">
+            <a href='../index.html' style='margin-bottom:20px; display:block;'>← 返回主索引</a>
+            <h1>🤖 具身大模型简报 - Mon, 20 Jul 2026 (VLA: 2 of 46 entries)</h1>
+            <div id="content"></div>
+            
+            <script type="text/markdown" id="raw-markdown">### 1. 🔥 [Xiaomi-Robotics-1: Scaling Vision-Language-Action Models with over 100K Hours of Real-World Trajectories] (小米机器人-1：基于超10万小时真实世界轨迹扩展视觉-语言-动作模型)
+- **研究机构**: `Xiaomi Robotics (小米机器人)`
+- **Arxiv ID**: `2607.15330` | [点击跳转](https://arxiv.org/abs/2607.15330)
+
+**0. 论文标题**
+- **英文标题**: Xiaomi-Robotics-1: Scaling Vision-Language-Action Models with over 100K Hours of Real-World Trajectories
+- **中文标题**: 小米机器人-1：基于超10万小时真实世界轨迹扩展视觉-语言-动作模型
+- **研究机构**: Xiaomi Robotics (小米机器人)
+
+**1. 整体逻辑**
+- **研究任务**: 视觉-语言-动作（VLA）模型在移动操作任务中的应用，核心是让机器人能在未见环境中零样本执行任务，并能用极少数据微调适应新任务。
+- **研究动机**: 机器人学习一直受限于数据瓶颈。传统的真机遥操作数据收集慢、成本高、受硬件限制，且任务和环境多样性差，导致模型很难像大语言模型那样通过单纯“堆数据”来提升泛化能力。
+- **本质改动**: 提出了一套两阶段训练范式。预训练阶段用10万小时UMI（手持夹爪）数据结合自动生成的“状态转换”语言标签学习通用动作生成；后训练阶段用1万小时跨具身数据，将模型从手持夹爪对齐到真实机器人本体，并将“状态转换”提示对齐到人类常用的“祈使句”指令。
+- **技术溯源**: 视觉语言基座采用 Qwen3-VL，动作生成采用 DiT (Diffusion Transformer) 和 Flow-matching，数据采集借鉴了 UMI (Universal Manipulation Interface) 方案，VLM 辅助动作生成借鉴了 Choice Policies。
+
+**2. 技术拆解**
+- **重点改进**: 
+  1. **数据与自动标注**：开发了一套高效流水线，用 VLM 为 10万小时的 UMI 轨迹片段自动标注“场景状态转换”描述（如“夹爪从空变为抓住杯子”），解决了大规模数据人工标注成本过高的问题。
+  2. **架构防捷径设计**：在混合 Transformer 架构中，刻意让 DiT 的注意力计算排除 VLM 生成的动作相关 token，防止 DiT 偷懒直接复制 VLM 的动作预测，强迫其基于视觉和文本上下文生成动作。
+  3. **两阶段对齐**：预训练学“状态转换”到动作的映射，后训练将其转换为“人类自然指令”到“特定机器人硬件动作”的映射。
+- **架构细节**: 
+  - **输入输出**：输入当前图像观测、语言指令和机器人本体状态；输出动作块（action chunk）。
+  - **模型结构**：采用 Mixture-of-Transformers (MoT) 架构，由 Qwen3-VL 和 DiT 组成。两者层数相同，但 DiT 隐藏层维度较小以加快推理速度。提供了 2B、5B、10B 三个参数规模。
+  - **动作生成**：DiT 使用 flow-matching 生成动作，推理时采用 5步 Euler 积分。VLM 端引入 Choice Policies 预测 K 个候选动作块及分数，用来辅助加速收敛。
+- **核心 Loss**: 
+  - **主 Loss**：DiT 的 flow-matching loss ($L_{Flow}$) + VLM 的 Choice Policy 回归 loss ($L_{Regression}$，包含最优候选动作的 L1 loss 和分数预测的 MSE loss)。
+  - **辅助任务**：加入了 Next-Token Prediction loss ($L_{NTP}$，权重设为 0.1) 联合训练视觉语言数据，防止 VLM 在学动作的过程中丧失原有的视觉语言理解能力。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - **数据集**：预训练用 100k 小时 UMI 数据；后训练用 10k 小时跨具身数据（含 7.2k 自研真机数据及 Bridge V2/RT-1/DROID 等开源数据）；下游微调用自研复杂任务数据。仿真测试用 RoboCasa、RoboCasa365、VLABench、RoboDojo。
+  - **Baseline**：未做动作预训练的 Qwen3-VL 基线、$\pi_{0.5}$ 模型以及各仿真榜单的前 SOTA 方法。
+- **评价指标**: 预训练看动作预测均方误差 (MSE)；真机后训练和微调看任务成功率 (Success Rate)；仿真看各 benchmark 的成功率或平均得分。
+- **实验结果**: 
+  - **缩放定律**：预训练阶段，数据规模和模型参数增加均能降低动作 MSE，且数据规模带来的收益比模型扩容更显著（说明当前数据量仍是主要瓶颈）。
+  - **真机零样本泛化**：在未见环境的 4 个任务中，预训练数据拉满后，后训练模型的零样本成功率从 26%（无预训练）提升至 75%；模型从 2B 扩大到 10B，成功率从 61% 提升至 79%。
+  - **少样本微调**：在 4 个复杂新任务（如双臂协作、长程移动操作等）上，每个任务仅用不到 10 小时数据微调，平均成功率达 75%，大幅超越 $\pi_{0.5}$ 的 40%。
+  - **仿真 SOTA**：在 RoboCasa365 上成功率达 57.6%（前 SOTA 为 46.6%）；在 RoboDojo 上平均得分 20.07（前 SOTA 为 13.07）。
+
+---
+
+
+### 2. 🔥 [AC-VLA: Robust Out-of-Distribution Action Execution via Compositional Learning] (AC-VLA：通过组合学习实现鲁棒的分布外动作执行)
+- **研究机构**: `深圳技术大学、深圳大学先进技术研究院、同济大学、大湾区大学`
+- **Arxiv ID**: `2607.15714` | [点击跳转](https://arxiv.org/abs/2607.15714)
+
+**0. 论文标题**
+- **英文标题**: AC-VLA: Robust Out-of-Distribution Action Execution via Compositional Learning
+- **中文标题**: AC-VLA：通过组合学习实现鲁棒的分布外动作执行
+- **研究机构**: 深圳技术大学、深圳大学先进技术研究院、同济大学、大湾区大学
+
+**1. 整体逻辑**
+- **研究任务**: 提升视觉-语言-动作（VLA）模型在分布外（OOD）组合任务上的泛化能力。具体来说，就是让机器人能把学过的子技能（如“抓A”、“放B”）重新组合，去执行没见过的指令（如“抓A放C”）。
+- **研究动机**: 发现现有VLA模型在遇到这种重组任务时容易翻车，主要有两个原因：一是“轨迹过拟合”，模型死记硬背了整套动作，不会拆解和重组子技能；二是“感知捷径”，模型在放置物体时太依赖腕部相机的局部纹理，忽略了第三人称视角的全局空间关系，导致放错位置。
+- **本质改动**: 不修改模型网络结构，只改数据构造和训练策略。一是把长指令和长轨迹自动拆成子任务，和完整数据混合训练；二是在夹爪闭合（放置）阶段，训练时故意遮住腕部相机画面，逼迫模型看全局。
+- **技术溯源**: 动作生成基于 $\pi_{0.5}$ (Flow-matching/DiT架构) 和 GR00T-N1 基座模型；指令拆解使用了 Qwen-3.5-Flash 大语言模型。
+
+**2. 技术拆解**
+- **重点改进**: 
+  1. **组合学习模块**：用LLM把长指令拆成子指令；用“本体感觉对齐器”（根据夹爪开合状态和末端位移阈值）把长轨迹切成对应的子轨迹。然后把“完整数据”和“子任务数据”按比例混合训练，让模型既懂整体连贯性，又懂子技能重组。
+  2. **状态条件非对称掩码**：训练时，如果检测到夹爪处于闭合状态（即放置阶段），就把腕部相机的图像token在注意力计算中mask掉，强制模型依赖第三人称视角和语言指令来定位。推理时不mask，恢复正常输入。
+- **架构细节**: 
+  - **输入**：第三人称视角图像、腕部视角图像、语言指令、机器人本体状态（末端位姿和夹爪状态）。
+  - **结构**：VLM（提取视觉语言特征） + DiT动作头（基于Flow-matching生成动作chunk）。模型本身零结构修改，改动全在数据流和Attention Mask上。
+  - **规模**：4张 A100 80G 训练，单张 RTX 5880 Ada 40G 推理。
+- **核心 Loss**: 
+  - 主Loss是Flow-matching的均方误差损失（预测去噪后的动作chunk与真实动作的L2距离）。
+  - 没有加额外的辅助Loss（如视频重建或对比学习），纯靠数据重构和Mask机制来引导特征学习。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - **数据集**：LIBERO（包含Spatial, Goal, Object, Long四个分布内子集）和 LIBERO-OOD（Spatial-OOD, Goal-OOD两个分布外子集），以及4个真实世界桌面操作任务。
+  - **Baseline**：$\pi_{0.5}$、GR00T-N1、OpenVLA-OFT、UniVLA、SF-$\pi_{0.5}$（Spatial Forcing）。
+- **评价指标**: 任务成功率（%）。每个任务跑3个随机种子，每个种子50个episode，取平均成功率。
+- **实验结果**: 
+  - **仿真OOD任务**：在 $\pi_{0.5}$ 基座上，AC-VLA在Spatial-OOD和Goal-OOD上的成功率分别达到64.2%和73.3%，比原版 $\pi_{0.5}$（35.5%和46.6%）绝对提升了约28%，比之前的SOTA（SF-$\pi_{0.5}$）也高出15%以上。同时分布内（In-D）平均成功率保持在96.6%，没有掉点。在 GR00T-N1 基座上同样有约20%的绝对提升。
+  - **真实世界OOD任务**：原版 $\pi_{0.5}$ 的OOD成功率仅35%，AC-VLA提升到82.5%（绝对提升47.5%），整体平均成功率从64.4%提升到85.6%。证明了该方法在真机上同样有效且不掉分布内性能。
+
+---
+</script>
+            <script>
+                const rawMdElement = document.getElementById('raw-markdown');
+                if (rawMdElement) {
+                    document.getElementById('content').innerHTML = marked.parse(rawMdElement.textContent);
+                    // 渲染后触发公式排版
+                    if (window.MathJax && window.MathJax.typesetPromise) {
+                        window.MathJax.typesetPromise();
+                    }
+                }
+                function copySources() { /* 原代码保持不变 */ }
+            </script>
+        </body>
+        </html>
+        
