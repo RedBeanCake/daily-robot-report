@@ -1,0 +1,159 @@
+
+        <!DOCTYPE html>
+        <html lang="zh-CN">
+        <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>🤖 具身大模型简报 - Wed, 22 Jul 2026 (VLA: 3 of 39 entries)</title>
+            <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.2.0/github-markdown.min.css">
+            <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+            <script>
+                window.MathJax = {
+                    tex: { inlineMath: [['$', '$'], ['\\(', '\\)']], displayMath: [['$$', '$$'], ['\\[', '\\]']] },
+                    options: { skipHtmlTags: ['script', 'style', 'textarea'] }
+                };
+            </script>
+            <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+            <style>
+                .markdown-body { box-sizing: border-box; min-width: 200px; max-width: 980px; margin: 0 auto; padding: 45px; }
+                @media (max-width: 767px) { .markdown-body { padding: 15px; } }
+            </style>
+        </head>
+        <body class="markdown-body">
+            <a href='../index.html' style='margin-bottom:20px; display:block;'>← 返回主索引</a>
+            <h1>🤖 具身大模型简报 - Wed, 22 Jul 2026 (VLA: 3 of 39 entries)</h1>
+            <div id="content"></div>
+            
+            <script type="text/markdown" id="raw-markdown">### 1. 🔥 [Masked Visual Actions for Unified World Modeling] (用于统一世界模型的掩码视觉动作)
+- **研究机构**: `Stanford University, University of Maryland, Harvard University`
+- **Arxiv ID**: `2607.19343` | [点击跳转](https://arxiv.org/abs/2607.19343)
+
+**0. 论文标题**
+- **英文标题**: Masked Visual Actions for Unified World Modeling
+- **中文标题**: 用于统一世界模型的掩码视觉动作
+- **研究机构**: Stanford University, University of Maryland, Harvard University
+
+**1. 整体逻辑**
+- **研究任务**: 机器人视频世界模型。具体包括根据机器人动作预测场景变化的正向模型，以及根据期望的物体运动反推机器人动作的逆向模型。
+- **研究动机**: 现有的视频世界模型通常用低维动作向量、末端位姿或骨架作为条件输入。这些信号跟视频模型预训练的像素空间不对齐，而且和特定的机器人形态（embodiment）强绑定。一旦换个没见过的机械臂或者改了夹爪，模型就直接崩溃或产生幻觉。
+- **本质改动**: 把“动作”直接变成像素空间里的“掩码轨迹”（Masked Visual Actions）。给模型看机器人的掩码运动，它就预测场景怎么变（正向）；给模型看物体的掩码运动，它就预测机器人该怎么动（逆向）。用同一套像素级接口统一了正向和逆向模型，且完全不依赖特定的机器人形态。
+- **技术溯源**: 基于 Wan-Fun-Control 2.2 14B 视频生成基座模型，使用 SAM (SegmentAnything) 做数据分割，数据来自 DROID 和 Robocasa。
+
+**2. 技术拆解**
+- **重点改进**: 抛弃了低维动作向量或稀疏的视觉提示（如骨架、末端点），改用密集的像素级掩码作为控制信号。通过在像素画布上选择“显示”哪个实体（机器人或物体），让同一个视频模型零样本切换正向动力学和逆向动力学功能，并实现跨形态（cross-embodiment）泛化。
+- **架构细节**: 
+  - **输入**: 初始场景参考图 + 掩码条件视频（被掩码遮挡的区域填均匀灰色）。
+  - **结构**: 用和视频模型相同的自编码器（Autoencoder）对掩码视频进行编码，然后在通道维度直接拼接（concatenation）到模型中。
+  - **规模与训练**: 基座是 14B 参数的 Wan 模型。没有全量微调，而是用 LoRA（rank 256）在 8 张 H200 上训练了约 10000 步（4天）。只用了 15 小时的真实和仿真数据。
+  - **数据构建**: 分两路。一路用 SAM 直接从视频里分割机械臂；另一路根据相机标定和 URDF 渲染半透明机械臂（夹爪标红），让模型能看清动作且不被自遮挡干扰。
+- **核心 Loss**: 标准的视频生成重建 Loss（即预测被 mask 掉的像素区域），本质是 masked video completion，没有额外加复杂的辅助 Loss。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - **数据集**: DROID（训练域内的单臂）、BEHAVIOR（未见过的双臂机器人 R1-Pro）、Real world（换了自定义 3D 打印夹爪的 Franka）、Robocasa（仿真）。
+  - **Baseline**: Ctrl-World（低维动作条件 SOTA）、Wan-move（轨迹条件）、图像生成视频基线，以及末端执行器可视化和骨架可视化方法。
+- **评价指标**: 视频生成质量（LPIPS, SSIM, PSNR），以及下游任务（规划、策略评估）的成功率和与真实世界执行结果的相关性。
+- **实验结果**: 
+  - **生成质量**: 在 DROID 上大幅领先 Ctrl-World（LPIPS 0.094 vs 0.362，SSIM 0.887 vs 0.708）。在未见过的双臂 BEHAVIOR 数据集上，Ctrl-World 直接失效，本文方法依然稳定生成（LPIPS 0.123 vs 0.196）。
+  - **泛化能力**: 消融实验证明，在训练域内，掩码、末端可视化、骨架可视化效果差不多；但一旦遇到没见过的夹爪或双臂机器人，稀疏信号（末端/骨架）会导致模型幻觉或崩溃，只有掩码视觉动作能完美泛化。
+  - **下游应用**: 在仿真规划任务中，用 Diffusion Policy 采样多条轨迹，用本模型做想象 rollout，再用 VLM（Gemini 3.1 Pro）打分选优，任务成功率随采样数增加稳定提升；在策略评估中，模型想象的结果与真实执行结果高度一致；在逆向建模中，能根据物体运动生成机器人动作视频，并结合逆向动力学模型成功提取出底层控制指令。
+
+---
+
+
+### 2. 🔥 [Agentic Real2Sim: Physics-based World Modeling with Vision-Language Agents] (智能体 Real2Sim：基于视觉语言智能体的物理世界建模)
+- **研究机构**: `University of British Columbia, Johns Hopkins University, Columbia University, National University of Singapore 等`
+- **Arxiv ID**: `2607.19190` | [点击跳转](https://arxiv.org/abs/2607.19190)
+
+**0. 论文标题**
+- **英文标题**: Agentic Real2Sim: Physics-based World Modeling with Vision-Language Agents
+- **中文标题**: 智能体 Real2Sim：基于视觉语言智能体的物理世界建模
+- **研究机构**: University of British Columbia, Johns Hopkins University, Columbia University, National University of Singapore 等
+
+**1. 整体逻辑**
+- **研究任务**: 将真实世界的机器人交互视频/记录（Real）自动转换为包含几何、物理参数和轨迹的可运行仿真回合（Sim），即 Real2Sim 转换。
+- **研究动机**: 现有的 Real2Sim 流程高度依赖人工干预（如手动清理网格、对齐坐标系、拼接各类感知与仿真工具），且通常只能处理单一场景（如仅刚性物体或仅柔性物体），缺乏一个能自动化、规模化且跨域的通用转换框架。
+- **本质改动**: 引入基于 VLM 的多智能体（Agentic）工作流。将 Real2Sim 过程拆解为多个 Agent，让 VLM 负责高层调度与异常处理（当“包工头”），调用现成的视觉和物理工具执行底层任务（干苦力），从而实现从真实视频到 MuJoCo 仿真场景的自动化转换。
+- **技术溯源**: VLM 后端使用 Gemma 4 31B、Qwen 3.6 35B、GPT-5.4 等；视觉工具基于 SAM 3、SAM 3D、FoundationStereo、FoundationPose；物理仿真基于 MuJoCo；数据基于 DROID、PhysTwin、BFM-Zero。
+
+**2. 技术拆解**
+- **重点改进**: 将 VLM 的“决策”与确定性工具的“执行”严格解耦。VLM 不直接生成 3D 几何或物理参数，而是进行有界、受模式约束的决策（如挑选关键帧、判断掩码质量、决定是否重试）。此外，引入“仿真器在环（Simulator-in-the-loop）”优化，通过在仿真器中微调物体位置来确保机械臂能成功抓取。
+- **架构细节**: 
+  - 包含 4 个核心 Agent：1) 视觉处理 Agent（提取分割、深度、6D 位姿）；2) 物理先验推断 Agent（推断材质、质量等物理属性）；3) 场景准备 Agent（对齐相机、机器人基座和地面，初始化 MuJoCo 场景）；4) 仿真器在环优化 Agent（优化物体放置以成功抓取）。
+  - 跨域支持：除了 DROID 刚性操作，还设计了柔性物体（PhysTwin）和人形运动（BFM-Zero）的适配器，共用同一套数据契约和反馈接口。
+- **核心 Loss**: 本文是 Agent 工作流，无传统神经网络训练的 Loss 函数。其系统优化和反馈信号来自：1) 仿真器在环的二元反馈（抓取/接触是否成功）；2) 评价阶段的 Replay Score（由 3 个 VLM Judge 对真实和仿真关键帧进行 0-10 分的结构化打分，>=8 分为成功）。
+
+**3. 实验结果**
+- **数据集和 baseline**: 
+  - **数据集**: DROID-100（100 个真实机器人操作回合，涵盖抓取/放置/推/插入），以及 PhysTwin（柔性）和 BFM-Zero（人形）数据集。
+  - **Baseline**: 主要对比不同 VLM 后端（GPT-5.4, Claude Haiku 4.5, Qwen 3.6 35B, Gemma 4 31B）作为 Agent 大脑的表现，评估开源与闭源模型的性价比。
+- **评价指标**: 
+  - **重放成功率（Replay Success）**: 用 3 个 VLM Judge 独立对比真实和仿真的关键帧（开始、中间、结束），评估目标物体身份、最终位置、动作相似度和夹爪位置。
+  - **模型成本（Model Bill）**: API 调用总费用。
+- **实验结果**: 
+  - 在 DROID-100 上，使用开源的 **Gemma 4 31B** 取得了最高的重放成功率（48/100 成功，8 个部分成功），且总 API 成本仅为 **$2.62**。
+  - 相比之下，**GPT-5.4** 成功率为 43/100，成本 $82.30（是 Gemma 的 31.4 倍）；**Claude Haiku 4.5** 成功率 37/100，成本是 Gemma 的 3.5 倍；**Qwen 3.6 35B** 成功率 45/100，成本是 Gemma 的 5 倍。
+  - **结论**: 把 VLM 限制在“高层决策”上，用小参数开源模型就能达到甚至超越昂贵闭源模型的效果，大幅降低了 Real2Sim 的成本。定性实验也验证了该框架在柔性物体（绳子、布料）和人形机器人（Unitree G1）上的转换能力。
+
+---
+
+
+### 3. 🔥 [RoboInter1.5: A Holistic Intermediate Representation Suite for Embodied World Modeling and Robotic Manipulation] (RoboInter1.5：用于具身世界建模与机器人操作的全面中间表征套件)
+- **研究机构**: `RoboInter1.5 Team（论文未明确列出单一主导机构，详见其Contributors附录）`
+- **Arxiv ID**: `2607.18709` | [点击跳转](https://arxiv.org/abs/2607.18709)
+
+**0. 论文标题**
+- **英文标题**: RoboInter1.5: A Holistic Intermediate Representation Suite for Embodied World Modeling and Robotic Manipulation
+- **中文标题**: RoboInter1.5：用于具身世界建模与机器人操作的全面中间表征套件
+- **研究机构**: RoboInter1.5 Team（论文未明确列出单一主导机构，详见其Contributors附录）
+
+**1. 整体逻辑**
+- **研究任务**: 具身智能中的中间表征（Intermediate Representations, IR）学习，涵盖VLM任务规划、VLA动作执行以及具身世界模型（World Model）的未来状态预测。
+- **研究动机**: 现有的机器人数据集大多只有“图像-指令-动作”的粗粒度对应，缺乏细粒度的中间表征（如抓取点、接触点、运动轨迹等）。纯文本的思维链（CoT）太稀疏，传达不了高频的物理细节；而纯动作条件的世界模型又缺乏几何语义，导致在做长程任务时，模型容易产生物理幻觉和误差累积。
+- **本质改动**: 构建了一个包含23万条轨迹、带有10多种密集中间表征标注的大规模数据集。在此基础上，把中间表征当作桥梁：向上约束VLM的规划，向下规范VLA的动作输出，同时作为结构条件去引导世界模型的视频生成。
+- **技术溯源**: 数据基于 DROID、RH20T、OXE 等开源数据集进行二次半自动标注；模型端基于前作 RoboInter1.0 演进，VLM/VLA 采用了主流的视觉-语言-动作架构范式（结合 SAM2 做自动分割辅助标注）。
+
+**2. 技术拆解**
+- **重点改进**: 
+  1. **数据端**：提出 RoboInter-Data，提供与底层动作严格时间对齐的10+种中间表征（包括子任务、基元技能、2D/3D grounding、affordance、抓取/放置位姿、接触点、夹爪轨迹等）。
+  2. **规划端**：构建 RoboInter-VQA 基准，训练 RoboInter-VLM Planner，专门强化模型对时空中间表征的理解和生成能力。
+  3. **执行端**：提出 RoboInter-VLA，支持隐式、显式和模块化的“先规划后执行（Plan-Then-Execute）”范式。
+  4. **世界模型端**：提出 RoboInter-World，用中间表征（比如把物体关键点追踪和夹爪轨迹渲染在黑色画布上形成的“控制视频”）作为条件来生成未来帧，解决长程视频生成时的幻觉问题。
+- **架构细节**: 
+  - **数据规模**：230k episodes，571个场景，包含61M帧物体标注和70M帧夹爪轨迹。
+  - **世界模型输入/输出**：输入当前RGB帧、语言指令和中间表征（控制视频），输出未来多帧RGB预测。
+  - **VLA输入/输出**：输入当前观测和VLM生成的中间表征（如轨迹、bbox），输出底层机器人动作。
+- **核心 Loss**: 
+  - **VLM/VQA**：多任务损失，包括空间/时间维度的分类Loss（如选择正确的bbox）、判断Loss和生成Loss（如回归轨迹坐标、自回归生成文本规划）。
+  - **VLA**：动作预测Loss（如L1/L2或扩散策略的噪声预测Loss），结合中间表征的辅助监督。
+  - **World Model**：视频生成重建Loss（如扩散模型的去噪Loss），利用中间表征作为 condition 计算条件生成概率。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - **数据集**：自建的 RoboInter-VQA（评估VLM）、RoboInter-CV（评估世界模型），以及真实世界闭环测试环境。
+  - **Baseline**：数据层面比了 LLARVA、ECoT、ShareRobot 等；模型层面比了纯文本CoT VLA、无中间表征的端到端VLA，以及纯语言/纯动作条件的世界模型。
+- **评价指标**: 
+  - **VLM**：空间和时间 VQA 任务的准确率（Accuracy）。
+  - **VLA**：开环动作预测误差（如 MSE），闭环真实世界任务成功率（Success Rate）。
+  - **World Model**：视频生成质量指标，以及“世界模型预测的未来帧对VLA动作预测准确率的提升幅度”。
+- **实验结果**: 
+  - **VLM Planner**：在空间和时间推理任务上显著优于 baseline，能更精准地生成操作导向的中间表征。
+  - **VLA Executor**：开环和闭环评估均表明，引入结构化中间表征先验后，策略的泛化能力和真实世界成功率大幅提升。
+  - **World Model**：RoboInter-World 有效减少了长程预测时的物理幻觉（比如物体乱飘、接触不一致），其生成的未来图像作为额外输入，进一步提高了 VLA Executor 的动作预测精度。
+
+---
+</script>
+            <script>
+                const rawMdElement = document.getElementById('raw-markdown');
+                if (rawMdElement) {
+                    document.getElementById('content').innerHTML = marked.parse(rawMdElement.textContent);
+                    // 渲染后触发公式排版
+                    if (window.MathJax && window.MathJax.typesetPromise) {
+                        window.MathJax.typesetPromise();
+                    }
+                }
+                function copySources() { /* 原代码保持不变 */ }
+            </script>
+        </body>
+        </html>
+        
