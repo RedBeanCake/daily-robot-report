@@ -1,0 +1,124 @@
+
+        <!DOCTYPE html>
+        <html lang="zh-CN">
+        <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>🤖 具身大模型简报 - Thu, 23 Jul 2026 (VLA: 2 of 34 entries)</title>
+            <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.2.0/github-markdown.min.css">
+            <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+            <script>
+                window.MathJax = {
+                    tex: { inlineMath: [['$', '$'], ['\\(', '\\)']], displayMath: [['$$', '$$'], ['\\[', '\\]']] },
+                    options: { skipHtmlTags: ['script', 'style', 'textarea'] }
+                };
+            </script>
+            <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+            <style>
+                .markdown-body { box-sizing: border-box; min-width: 200px; max-width: 980px; margin: 0 auto; padding: 45px; }
+                @media (max-width: 767px) { .markdown-body { padding: 15px; } }
+            </style>
+        </head>
+        <body class="markdown-body">
+            <a href='../index.html' style='margin-bottom:20px; display:block;'>← 返回主索引</a>
+            <h1>🤖 具身大模型简报 - Thu, 23 Jul 2026 (VLA: 2 of 34 entries)</h1>
+            <div id="content"></div>
+            
+            <script type="text/markdown" id="raw-markdown">### 1. 🔥 [Robots Acquire Manipulation Skills in Seconds from a Single Human Video] (机器人通过单个人类视频在数秒内获取操作技能)
+- **研究机构**: `北京理工大学、X SQUARE ROBOT、清华大学`
+- **Arxiv ID**: `2607.20033` | [点击跳转](https://arxiv.org/abs/2607.20033)
+
+**0. 论文标题**
+- **英文标题**: Robots Acquire Manipulation Skills in Seconds from a Single Human Video
+- **中文标题**: 机器人通过单个人类视频在数秒内获取操作技能
+- **研究机构**: 北京理工大学、X SQUARE ROBOT、清华大学
+
+**1. 整体逻辑**
+- **研究任务**: 让机器人看一遍人类操作视频，就能在推理阶段直接执行新任务（单样本视觉模仿）。
+- **研究动机**: 现在教机器人新技能，通常得靠人遥操作收集一堆数据再离线微调，费时费力，而且微调会导致“灾难性遗忘”，把以前学过的技能忘了。现有的直接看视频的方法（如OSVI）只是把视频当成被动背景，由于人机动作速度不同步、视角和形态有差异，导致生成的动作不准。
+- **本质改动**: 核心思路是把学新技能从“训练时调参”变成“推理时计算”。提出 HOST 框架，推理时不更新模型参数，而是通过进度对齐和级联预测，让视频主动引导机器人一步步生成动作。
+- **技术溯源**: 基于模仿学习框架和自回归扩散模型，对比了 pi0.5、Wall-OSS、Vid2Robot 等现有的具身基础模型和视觉模仿方法。
+
+**2. 技术拆解**
+- **重点改进**: 
+  1. 预测目标与视频耦合：把机器人轨迹和人类视频映射到同一个“任务进度空间”，让模型的预测目标直接对齐视频的未来进度，而不是固定时间步。
+  2. 自 grounded 预测级联：分三步走。先判断机器人当前处于视频的哪个进度；再把视频接下来的画面翻译成机器人视角的未来观测；最后根据预测的未来观测生成动作。
+- **架构细节**: 
+  - 输入：单个人类演示视频、机器人当前的 RGB 观测（3个相机）。
+  - 输出：20维双臂动作（每臂10维：3D位置 + 6D旋转 + 1D夹爪）。
+  - 模型结构：包含进度对齐模块（Alignment Module）和自回归扩散模型（Autoregressive Diffusion Model）。
+  - 训练流程：分两阶段。第一阶段用 19.3万条同具身（robot-robot）数据预训练；第二阶段用 5800多条人-机（human-robot）配对数据微调。推理时参数完全冻结。
+- **核心 Loss**: 主 Loss 是自回归扩散模型的动作和未来观测预测 Loss；辅助任务是进度对齐 Loss（用于将视频和轨迹映射到共享的任务进度空间）。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - 数据集：自建的包含 19.3万条机器人轨迹（229个任务）和 5847条人-机配对视频的数据集。在 50个新任务和 7个旧任务上测试。
+  - Baseline：视觉模仿方法（Vid2Robot, AWDA），语言条件模仿学习方法（π0.5, Wall-OSS）及其 LoRA 微调版本。
+- **评价指标**: 任务成功率（人工评判，每任务20次）、技能获取耗时、所需演示数据量、旧技能保留率。
+- **实验结果**: 
+  - 在 50个新任务上，只看 1个人类视频，平均成功率达到 62%。
+  - 比最强的免微调 baseline 高出 43%~45%。
+  - 比用 50条机器人数据微调的最强 baseline（成功率56%）还高 6%，而且数据量只要它的 1/50，学新技能平均只要 29秒（快 507倍）。
+  - 旧技能保留率 100%，而微调方法会严重遗忘（最强微调版只剩 40%）。
+  - 在光照变化、换物体、换场景和人为干扰下，成功率仅下降 1%~9%，鲁棒性很好。
+
+---
+
+
+### 2. 🔥 [KineBench: Benchmarking Embodied World Models via IDM-Free Kinematic Grounding] (KineBench：通过无逆动力学模型的运动学接地评估具身世界模型)
+- **研究机构**: `中国电信人工智能研究院 (TeleAI)、新加坡国立大学、复旦大学、清华大学、西北工业大学深圳研究院`
+- **Arxiv ID**: `2607.19876` | [点击跳转](https://arxiv.org/abs/2607.19876)
+
+**0. 论文标题**
+- **英文标题**: KineBench: Benchmarking Embodied World Models via IDM-Free Kinematic Grounding
+- **中文标题**: KineBench：通过无逆动力学模型的运动学接地评估具身世界模型
+- **研究机构**: 中国电信人工智能研究院 (TeleAI)、新加坡国立大学、复旦大学、清华大学、西北工业大学深圳研究院
+
+**1. 整体逻辑**
+- **研究任务**: 评估具身世界模型（视频生成模型）生成的动作视频在物理世界中是否真的可执行、是否符合物理规律。
+- **研究动机**: 现有的闭环评估方法都用逆动力学模型（IDM）从 2D 视频里反推 3D 动作。但 IDM 对没见过的数据泛化很差，经常提错动作。这就导致一个“归因模糊”问题（到底是谁的锅）：任务执行失败，到底是世界模型生成的视频本身不符合物理规律，还是 IDM 提取动作提取错了？
+- **本质改动**: 抛弃 IDM，用一套显式的视觉几何流水线（分割+深度估计+6D位姿跟踪）直接从视频帧里算出夹爪的 6D 位姿，再送入物理模拟器里执行。同时加了两个传统的机器人运动学指标来评估轨迹质量。
+- **技术溯源**: 物理模拟器基于 ManiSkill3；视觉提取用了 YOLOv11（分割）、MoGeV2（深度估计）和 FoundationPose（6D位姿跟踪）；评测的视频生成基座包括 Wan 2.1/2.2、CogVideoX 等。
+
+**2. 技术拆解**
+- **重点改进**: 
+  1. 动作提取：用模块化的几何方法替代黑盒的 IDM，消除评估时的归因模糊。
+  2. 评价体系：从只看“像素好不好看”转变为看“3D 运动学合不合理”，引入了轨迹平滑度和机器人关节极限评估。
+- **架构细节**: 
+  - 输入输出：输入语言指令和初始图像，世界模型输出预测视频。视频帧经过 YOLOv11 提取夹爪 mask，再经微调的 MoGeV2 算出绝对深度图，最后用 FoundationPose 结合夹爪的 CAD 模型算出每一帧的 6D 位姿。
+  - 执行：把提取的 6D 位姿序列输入 ManiSkill3 模拟器进行闭环验证。
+  - 模型规模：评测了 1.3B 到 5B 参数规模的视频生成模型。
+- **核心 Loss**: 
+  - 本文是 Benchmark，没有训练世界模型的 Loss。
+  - 动作提取模块中，MoGeV2 在第二阶段微调时放大了细粒度几何细节的 Loss；FoundationPose 使用渲染与比较（Render-and-Compare）机制，最小化渲染的 CAD 模板与生成帧之间的光度和几何残差。
+  - 核心评价指标（非 Loss）：SPARC（频域下的速度谱弧长，值越接近 0 越平滑）和 Maruyama 可操作度指数（基于雅可比矩阵，评估是否接近奇异位形）。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - 数据集：基于 ManiSkill3 设计的 20 个操作任务，分为 4 个测试集（基础执行、任务迁移、视觉 OOD 泛化、复杂度缩放）。
+  - Baseline：动作提取对比了 Dino3DFlowIDM；世界模型对比了 Wan 2.1 (1.3B)、Wan 2.2 (5B)、CogVideoX (2B) 及其 LoRA 微调版。
+- **评价指标**: 
+  - 动作提取准确度（平移和旋转误差）。
+  - 物理执行成功率（模拟器中的任务成功率）。
+  - 运动学指标（SPARC 和 Maruyama 指数）。
+- **实验结果**: 
+  - 动作提取更准：KineBench 的显式几何流水线比 IDM 的平移误差小很多（IDM 误差约 10 厘米，KineBench 在 1.5-3 厘米），且对夹爪变形、遮挡、模糊等视觉扰动更鲁棒。
+  - 发现缩放规律：在前沿模型上发现，具身视频生成存在“受任务复杂度制约的非线性缩放”现象。任务越难，增加数据和算力带来的边际收益递减。
+  - 指标有效性：SPARC 和 Maruyama 指数与物理执行成功率有显著相关性，能有效诊断生成视频的运动学质量。
+
+---
+</script>
+            <script>
+                const rawMdElement = document.getElementById('raw-markdown');
+                if (rawMdElement) {
+                    document.getElementById('content').innerHTML = marked.parse(rawMdElement.textContent);
+                    // 渲染后触发公式排版
+                    if (window.MathJax && window.MathJax.typesetPromise) {
+                        window.MathJax.typesetPromise();
+                    }
+                }
+                function copySources() { /* 原代码保持不变 */ }
+            </script>
+        </body>
+        </html>
+        
