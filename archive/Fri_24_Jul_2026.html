@@ -1,0 +1,246 @@
+
+        <!DOCTYPE html>
+        <html lang="zh-CN">
+        <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>🤖 具身大模型简报 - Fri, 24 Jul 2026 (VLA: 5 of 35 entries)</title>
+            <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.2.0/github-markdown.min.css">
+            <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+            <script>
+                window.MathJax = {
+                    tex: { inlineMath: [['$', '$'], ['\\(', '\\)']], displayMath: [['$$', '$$'], ['\\[', '\\]']] },
+                    options: { skipHtmlTags: ['script', 'style', 'textarea'] }
+                };
+            </script>
+            <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+            <style>
+                .markdown-body { box-sizing: border-box; min-width: 200px; max-width: 980px; margin: 0 auto; padding: 45px; }
+                @media (max-width: 767px) { .markdown-body { padding: 15px; } }
+            </style>
+        </head>
+        <body class="markdown-body">
+            <a href='../index.html' style='margin-bottom:20px; display:block;'>← 返回主索引</a>
+            <h1>🤖 具身大模型简报 - Fri, 24 Jul 2026 (VLA: 5 of 35 entries)</h1>
+            <div id="content"></div>
+            
+            <script type="text/markdown" id="raw-markdown">### 1. 🔥 [GS-Agent: Creating 4D Physical Worlds With Generative Simulation] (GS-Agent：利用生成式仿真创建4D物理世界)
+- **研究机构**: `University of Massachusetts Amherst, Genesis AI`
+- **Arxiv ID**: `2607.21522` | [点击跳转](https://arxiv.org/abs/2607.21522)
+
+**0. 论文标题**
+- **英文标题**: GS-Agent: Creating 4D Physical Worlds With Generative Simulation
+- **中文标题**: GS-Agent：利用生成式仿真创建4D物理世界
+- **研究机构**: University of Massachusetts Amherst, Genesis AI
+
+**1. 整体逻辑**
+- **研究任务**: 根据自然语言文本描述，生成包含3D资产、物理材质、物体运动和相机光照的动态4D物理世界（最终输出可执行的仿真代码和渲染视频）。
+- **研究动机**: 现有的文本到视频生成模型（如Sora）虽然视觉效果不错，但缺乏物理合理性（容易出现穿模、不符合物理定律的现象）和精细可控性；而传统的3D/4D生成方法需要大量人工调参，自动化程度低。
+- **本质改动**: 不直接用视频生成模型预测像素，而是搭建一个多智能体系统，把物理引擎接入闭环。让大模型像人类特效师一样，通过写代码调用物理引擎来搭建场景、调材质、设置运动轨迹，并利用物理引擎的真实反馈来修正错误。
+- **技术溯源**: 大语言模型（论文实验使用 GPT-5 作为基座），资产检索使用了 CLIP，3D资产生成使用了 Meshy，底层物理引擎使用了 Genesis。
+
+**2. 技术拆解**
+- **重点改进**: 设计了三个专职 Agent 协同工作的框架，并定义了 Agent 与物理引擎交互的专用工具接口。Agent 不直接输出像素，而是输出控制物理引擎的代码，利用物理引擎的真实物理反馈来消除大模型的幻觉。
+- **架构细节**: 
+  - **输入输出**: 输入自然语言指令，输出可执行的物理仿真代码及渲染出的视频。
+  - **模型结构**: 包含 Manager Agent（负责理解指令、拆解任务、控制仿真时间线和全局参数）、Entity Agent（负责用 CLIP 检索或 Meshy 生成3D资产，计算放置位置，微调杨氏模量等物理材质参数，编写运动控制代码）、Render Agent（负责设置相机轨迹、配置光照和录制视频）。
+  - **交互机制**: Agent 之间通过消息通信，通过结构化的 API 工具与 Genesis 物理引擎交互，支持刚体、形变体（MPM）和流体（SPH）仿真。
+- **核心 Loss**: 本文是基于 Agent 推理和代码生成的系统，不涉及传统神经网络的梯度下降训练，因此没有常规的 Loss 函数。其“优化”机制是 Agent 的自纠错循环：Agent 执行代码后，获取物理引擎的报错信息、边界检查以及渲染出的图像/视频反馈，通过多模态大模型的推理能力不断修改代码，直到满足物理规律和文本指令。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - **数据集**: NewtonGen 基准（24个场景，测试12种物理定律）和自建的30个复杂交互与动态相机场景。
+  - **Baseline**: 闭源/开源视频生成模型（Sora-2, Wan2.2），以及代码智能体基线（SWE-Agent, 带视觉反馈的 SWE-Agent w/ Visual）。
+- **评价指标**: 
+  - **物理不变性得分 (PIS)**: 分为基于视频像素分割的 Video-PIS 和直接读取物理引擎3D质心数据的 State-PIS（更严格）。
+  - **文本对齐度 (Alignment Score)** 和 **美学得分 (Aesthetic)**。
+  - **人类主观评价 (User Study)**。
+- **实验结果**: 
+  - **物理合理性大幅提升**: State-PIS 达到 0.83（SWE-Agent w/ Visual 仅 0.57），Video-PIS 达到 0.71（Sora-2 为 0.62，Wan2.2 为 0.46）。
+  - **指令对齐度更好**: Alignment Score 达到 32.2（Sora-2 为 30.6）。
+  - **人类评价**: 在物理合理性（4.33）、相机可控性（4.32）和内容对齐（4.70）上均排名第一；仅美学得分（3.86）略低于 Sora-2（4.18），因为物理引擎渲染的画面不如纯视频模型具有“滤镜感”，但物理交互绝对真实。
+
+---
+
+
+### 2. 🔥 [GuidedAttention: Interpretable and Correctable Visual Attention for OOD-Robust Robot Manipulation via Imitation Learning] (GuidedAttention：面向分布外鲁棒机器人模仿学习的可解释与可纠正视觉注意力)
+- **研究机构**: `CNRS-AIST JRL (法国国家科学研究中心与日本产业技术综合研究所联合机器人实验室)`
+- **Arxiv ID**: `2607.21049` | [点击跳转](https://arxiv.org/abs/2607.21049)
+
+**0. 论文标题**
+- **英文标题**: GuidedAttention: Interpretable and Correctable Visual Attention for OOD-Robust Robot Manipulation via Imitation Learning
+- **中文标题**: GuidedAttention：面向分布外鲁棒机器人模仿学习的可解释与可纠正视觉注意力
+- **研究机构**: CNRS-AIST JRL (法国国家科学研究中心与日本产业技术综合研究所联合机器人实验室)
+
+**1. 整体逻辑**
+- **研究任务**: 机器人视觉模仿学习（Visuomotor Imitation Learning），重点是提高策略在分布外（OOD，如物体位置变化、背景外观变化）环境下的操作成功率。
+- **研究动机**: 现有的端到端策略（如 Diffusion Policy、ACT）是黑盒，人类无法干预其视觉注意力。当遇到 OOD 场景时，模型的注意力容易跑偏导致失败，而人类明明知道该看哪里却无法纠正。
+- **本质改动**: 在视觉感知和动作生成之间，插入“显式的视觉注意力关键点”作为中间表示。人类可以在推理开始时手动纠正这些关键点，然后由跟踪模块自动传播，从而把模型“拉回”正确的关注点。
+- **技术溯源**: 基于 Diffusion Policy (扩散策略) 做动作生成，基于 DETR 架构做关键点预测，使用 Co-Tracker 做关键点跟踪。
+
+**2. 技术拆解**
+- **重点改进**: 提出了 DP-GA (带引导注意力的扩散策略)。把原来直接用 CNN 提取全局图像特征去条件化扩散模型的做法，改成了用“注意力关键点特征”去条件化。同时设计了一套关键点覆盖（Override）机制，让人类的纠正能无缝接入模型。
+- **架构细节**: 
+  - 输入是多视角 RGB 图像和机器人关节状态。
+  - 视觉注意力编码器（AttnEnc）：用 ResNet-18 提特征，接 Transformer Encoder-Decoder（类似 DETR），输出预定义数量的 2D 关键点坐标和对应的特征向量。
+  - 动作生成：基于 U-Net 的扩散策略，条件输入是上述关键点特征和关节状态。
+  - 覆盖机制：推理时如果人类修改了关键点坐标，通过线性映射的伪逆矩阵把坐标反算回特征空间，替换掉模型自己预测的特征。
+- **核心 Loss**: 
+  - 主 Loss：扩散模型常规的动作去噪 Loss。
+  - 关键点 Loss ($\mathcal{L}_{kp}$)：预测坐标与真值坐标的 MSE（真值由人工标注首帧，后续用 Co-Tracker 自动生成）。
+  - 特征对齐 Loss ($\mathcal{L}_{feat}$)：强制正向预测的特征和通过坐标逆映射恢复的特征在特征空间对齐（MSE）。
+  - 训练技巧：随机特征路由（Randomized feature routing），训练时随机决定扩散模型接收的是预测特征还是逆映射特征，防止模型对某条路径过拟合。
+
+**3. 实验结果**
+- **数据集和baseline**: 仿真环境（MuJoCo）下的 Cable（穿线）、Ring（套环）、Particle（舀颗粒）三个任务，以及真机实验。对比 Baseline 为原版的 Diffusion Policy (DP) 和 ACT。
+- **评价指标**: 任务成功率（%），分别在分布内（ID）、位置 OOD、外观 OOD 以及两者叠加（Pos+App-OOD）四种条件下评估。
+- **实验结果**: 
+  - 纯自主执行（不人工纠正）：DP-GA 在 ID 下比 DP 高约 15%，在多数 OOD 下比 DP 高约 10%。ACT 在 OOD 下直接崩溃。
+  - 开启人工纠正（首帧修正关键点）：DP-GA 在各种 OOD 下的成功率比纯自主执行再提升 15-30%。在最难的 Pos+App-OOD 下，DP-GA（带纠正）成功率达 67.8%，而 DP 只有 28.9%，ACT 只有 8.9%。
+  - 消融实验证明，特征对齐 Loss 和随机路由机制是人工纠正能起作用的关键，去掉后纠正机制直接失效（开启纠正时性能暴跌近 60%）。
+
+---
+
+
+### 3. 🔥 [TableVerse: A Large-scale Tabletop Dataset with Real-world Grounded Layouts for Generalizable Manipulation] (TableVerse：面向泛化操作的大规模真实世界布局桌面数据集)
+- **研究机构**: `ByteDance (字节跳动)`
+- **Arxiv ID**: `2607.21017` | [点击跳转](https://arxiv.org/abs/2607.21017)
+
+**0. 论文标题**
+- **英文标题**: TableVerse: A Large-scale Tabletop Dataset with Real-world Grounded Layouts for Generalizable Manipulation
+- **中文标题**: TableVerse：面向泛化操作的大规模真实世界布局桌面数据集
+- **研究机构**: ByteDance (字节跳动)
+
+**1. 整体逻辑**
+- **研究任务**: 构建大规模、高保真且物理一致的桌面操作仿真数据集（Real2Sim），并自动生成操作轨迹，用于训练具身智能操作策略。
+- **研究动机**: 现有的自动化场景生成方法（如文本生成布局或简单的程序化生成）存在严重的物理不合理问题（如物体穿模），且生成的场景过于稀疏简单，无法还原真实人类环境中密集、杂乱的桌面布局，导致仿真到现实的gap很大，限制了操作策略的泛化能力。
+- **本质改动**: 提出了一套全自动的 Real2Sim 流水线，直接从互联网单视角图片重建物理仿真环境。核心是设计了布局一致的碰撞校正（LCCR）算法，在保持原始宏观布局的前提下，通过几何优化和物理引擎彻底解决物体穿模问题。
+- **技术溯源**: 视觉检测与分割基于 Seed-1.8、SAM2、SAM3D；深度估计基于 Depth Anything 3；物理仿真使用 MuJoCo；抓取生成用 GraspGen；运动规划用 cuRobo；数据清洗和标注使用多模态大模型 Gemini 2.5 Pro。
+
+**2. 技术拆解**
+- **重点改进**: 
+  1. **布局一致的碰撞校正 (LCCR)**：分三步解决穿模。先分组接地，区分垂直堆叠和水平碰撞；再构建径向图，沿径向向外平移解决水平重叠，保持方位角不变；最后调整Z轴解决垂直交叉，并放入MuJoCo让物体自然沉降到稳定状态。
+  2. **复合物体物理组装**：把容器和内部物品分别重建为独立Mesh，在MuJoCo里做自由落体模拟，让物品自然掉进容器，保证物理接触合理且支持独立操作。
+  3. **自动化轨迹生成**：结合自上而下的6D抓取筛选和基于空间关系约束的放置采样，用cuRobo生成无碰撞的机械臂运动轨迹。
+- **架构细节**: 
+  - **输入输出**：输入单张非结构化的互联网桌面图片；输出包含10万个独立场景的 TableVerse-100K 数据集（MJCF格式），涵盖近100万个物体实例和3.5万个语义类别，以及对应的专家操作轨迹。
+  - **辅助模块**：用 Gemini 2.5 Pro 做7维度的场景打分、物理属性（质量、关节）预测和Pick-and-Place任务生成；引入1700多种桌面纹理做域随机化，防止下游视觉策略过拟合。
+- **核心 Loss**: 
+  - 本文核心是数据生成和几何优化Pipeline，不涉及常规的神经网络训练Loss。
+  - 在6-DoF位姿提取时，使用 Chamfer Distance（倒角距离）做点云和Mesh的粗到细ICP配准；在LCCR碰撞校正时，本质是求解满足无碰撞约束（交集为空）的最小几何平移距离。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - **数据集**：自建的 TableVerse-100K。
+  - **Baseline方法**：视觉重建方法（MIDI, SAM3D, SceneMaker）和文本/符号生成方法（TO-Scene, MesaTask-10K）。
+- **评价指标**: 
+  - 场景物理合理性（穿模率、物理稳定性）。
+  - 布局保真度（与真实图片的宏观布局一致性）。
+  - 轨迹生成成功率与无碰撞率。
+  - 数据集规模与多样性（实例数、类别数、长尾分布）。
+- **实验结果**: 
+  - *(注：提供的文本在具体实验数据表格前截断，以下基于论文核心贡献和对比逻辑进行总结)*
+  - **规模与多样性**：成功构建了10万级物理一致的桌面场景，包含近100万实例和3.5万类别，数据规模和长尾分布远超现有数据集。
+  - **物理与布局效果**：相比 SceneMaker 等方法在密集场景下产生严重穿模，LCCR 模块成功消除了深层几何交叉，避免了直接放入物理引擎导致的“爆炸”现象；相比 MesaTask-10K 等生成方法，TableVerse 还原了真实世界密集、杂乱、垂直堆叠的复杂拓扑。
+  - **轨迹生成**：基于重建的高保真场景，自动化Pipeline成功生成了大规模无碰撞且符合物理规律的专家操作轨迹，为下游VLA/操作策略训练提供了高质量的数据底座。
+
+---
+
+
+### 4. 🔥 [Emergent Compositional Skills in Mixture-of-Experts VLAs] (混合专家视觉-语言-动作模型中涌现的组合式技能)
+- **研究机构**: `UC Berkeley (加州大学伯克利分校)`
+- **Arxiv ID**: `2607.20771` | [点击跳转](https://arxiv.org/abs/2607.20771)
+
+**0. 论文标题**
+- **英文标题**: Emergent Compositional Skills in Mixture-of-Experts VLAs
+- **中文标题**: 混合专家视觉-语言-动作模型中涌现的组合式技能
+- **研究机构**: UC Berkeley (加州大学伯克利分校)
+
+**1. 整体逻辑**
+- **研究任务**: 机器人操作策略的端到端学习，特别是长程任务中的技能分解与组合。
+- **研究动机**: 现有的 VLA（视觉-语言-动作）模型通常是单体结构，难以识别和复用底层技能（如靠近、抓取、放置），且修改局部策略困难。传统的层次化方法又需要人工预定义任务分解或技能库。本文旨在让模型直接从数据中自动学习出模块化、可组合的技能。
+- **本质改动**: 在 VLA 的动作生成模块中引入简化的混合专家（MoE）架构。用路由器（Router）做高层序列控制，用不同的专家（Expert）做底层动作执行，实现无需人工预定义的技能分解。
+- **技术溯源**: 基于 $\pi_0$ (Physical Intelligence) 和 SmolVLA (Hugging Face) 这两个使用 Flow Matching 生成动作的预训练 VLA 基座。
+
+**2. 技术拆解**
+- **重点改进**: 将动作生成 Transformer 的 FFN（前馈网络）层替换为基于 LoRA 的 MoE 结构，并将路由机制从传统的“逐层逐 token 路由”改为“单次全局路由”。
+- **架构细节**: 
+  - **输入输出**: 输入为图像、语言指令和机器人本体状态（proprioceptive state），输出为动作序列（action chunk）。
+  - **模型结构**: Transformer 的 Self-attention 层在所有专家间共享，仅替换 FFN 层。每个专家通过低秩（LoRA，r=16）增量实现，B矩阵零初始化，确保训练初始阶段等同于预训练基座。
+  - **路由机制**: 使用一个小型 MLP 路由器，接收视觉、语言和本体状态的全局池化特征。每次前向传播（生成一个动作序列）仅进行一次路由决策，选出 top-k 个专家，并将该决策统一应用于网络中所有的 FFN 层。这确保了每个专家执行的是一个连贯的完整技能，而非碎片化的层间计算。
+- **核心 Loss**: 
+  - **主 Loss**: Flow-matching 速度预测损失（$\mathcal{L}_{FM}$），用于行为克隆。
+  - **辅助 Loss**: 标准的负载均衡损失（Load-balancing loss, $\mathcal{L}_{LB}$），权重 $\lambda=0.01$，用于防止路由崩溃（即避免模型退化到只使用单个专家）。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - **数据集**: LIBERO-10（包含 10 个长程桌面操作任务）。
+  - **Baseline**: 在相同预训练权重下微调的 Dense（密集型/无 MoE）$\pi_0$ 和 SmolVLA 模型。
+- **评价指标**: 
+  - 任务成功率（评估整体操作性能）。
+  - 专家调用频率与定性行为分析（评估技能是否真正解耦和复用）。
+- **实验结果**: 
+  - **性能表现**: MoE 策略在 LIBERO-10 上的任务成功率与微调后的 Dense baseline 相当，证明引入 MoE 不会牺牲任务执行能力。
+  - **技能涌现与复用**: 模型自动学到了特征鲜明的底层技能。例如，“专家 A”专门负责将已抓取的物体运输到目标位置，在 5 个不同任务中被高频复用（调用率 35%-45%）；“专家 C”专门负责靠近并抓取带细手柄的物体。
+  - **技能组合**: 长程任务被路由器自动编排为技能序列。例如在放置书本的任务中，模型先调用“专家 C”完成抓取，随后切换至“专家 A”完成放置。
+  - **失败可解释性**: 当任务执行失败时，模型表现为对已知技能的重复错误调用（如反复尝试抓取和释放），而不是输出无意义的随机动作，提升了策略的可解释性。
+
+---
+
+
+### 5. 🔥 [PhysCoRe: Physics-Corrected Residual World Models for Material-Aware Deformable Dynamics] (PhysCoRe：用于材料感知可变形动力学的物理修正残差世界模型)
+- **研究机构**: `Georgia Institute of Technology (佐治亚理工学院)`
+- **Arxiv ID**: `2607.20653` | [点击跳转](https://arxiv.org/abs/2607.20653)
+
+**0. 论文标题**
+- **英文标题**: PhysCoRe: Physics-Corrected Residual World Models for Material-Aware Deformable Dynamics
+- **中文标题**: PhysCoRe：用于材料感知可变形动力学的物理修正残差世界模型
+- **研究机构**: Georgia Institute of Technology (佐治亚理工学院)
+
+**1. 整体逻辑**
+- **研究任务**: 可变形物体（如绳子、毛巾、橡皮泥）在机器人或人手操作下的动力学预测（世界模型）。即给定初始的RGB-D观测和动作序列，预测物体未来的形变和粒子位置。
+- **研究动机**: 现有的基于物理的方法（如MPM）需要针对每个新物体去优化材料参数，耗时太长且无法泛化到新物体；而纯数据驱动的方法（如GNN）缺乏物理约束，外推能力差，容易违背物理规律。
+- **本质改动**: 将可微物理模拟器（MPM）与两个前馈神经网络结合。用第一个网络从视觉观测中直接前馈推断逐粒子的材料参数，代替耗时的优化过程；用第二个网络在物理模拟循环内部预测速度残差，修正解析物理模型自带的系统误差（sim-to-real gap）。
+- **技术溯源**: 物理模拟基于 MLS-MPM (Moving Least Squares Material Point Method)；视觉和特征提取用到了 CoTracker3 (点跟踪)、Grounded SAM2 (掩码)、Graph U-Net 和 3D U-Net；渲染和评估用到了 3DGS (3D Gaussian Splatting)。
+
+**2. 技术拆解**
+- **重点改进**: 
+  1. **MfM (Material from Motion) 模块**：将耗时的逐物体材料参数优化改为前馈网络直接推断。输入短时间窗口的视觉观测，直接输出每个粒子的弹性参数（杨氏模量、泊松比）、预测置信度以及弹/塑性概率。
+  2. **RfD (Residual from Dynamics) 模块**：在MPM模拟器的网格更新(Grid update)和网格到粒子(G2P)之间，注入一个学习到的网格速度残差。用来吸收物理模拟器因为离散化、简化本构模型、未建模摩擦等带来的系统偏差。
+- **架构细节**: 
+  - **MfM**：输入是跟踪到的物体和控制点的位置及位移（用傅里叶特征编码）。网络主体是 Graph U-Net，结合时间模块（1D卷积+GRU）提取时空特征，最后用共享MLP解码出材料参数和置信度。
+  - **RfD**：输入是MPM网格状态、MfM输出的材料估计和接触几何特征。网络是 FiLM-conditioned 的稀疏 3D U-Net。输出残差用 tanh 限制最大幅度，且输出层零初始化，保证训练初期不破坏原有物理模拟器。
+  - **训练策略**：两阶段训练。MfM先在合成数据（用Perlin噪声生成空间相关的材料场）上预训练；然后冻结MfM，在真实数据上端到端训练RfD。
+- **核心 Loss**: 
+  - **MfM 预训练 Loss**：材料回归 Loss（Smooth-L1，用预测的置信度加权，加 log 置信度正则化防止置信度无脑变大） + 弹性/塑性分类的 BCE Loss。
+  - **RfD 训练 Loss**：状态重建 Loss。包括预测点云与真实点云的单侧 Chamfer Distance，以及可见跟踪粒子的 L2 误差。
+
+**3. 实验结果**
+- **数据集和baseline**: 
+  - **数据集**：12个真实世界人手操作可变形物体的episode（包括弹性物体如绳子、毛巾，和弹塑性物体如橡皮泥），用3个RealSense D455相机采集。主动探索实验用了KUKA机械臂。
+  - **Baseline**：PhysTwin（基于物理的逐物体优化方法），PGND（纯数据驱动的图网络方法）。
+- **评价指标**: 
+  - 几何精度：Chamfer Distance (CD), 跟踪Loss (可见点的L2误差)。
+  - 视觉质量：通过3DGS渲染后计算 IoU, PSNR, SSIM, LPIPS。
+  - 效率：材料识别/优化时间。
+- **实验结果**: 
+  - **预测精度**：相比 PhysTwin，PhysCoRe 在弹性物体上的 CD 降低 43.7%，弹塑性物体上降低 30.5%；跟踪 Loss 分别降低 15.2% 和 8.3%。
+  - **消融实验**：加入 RfD 残差修正后，相比仅用 MfM，弹性物体 CD 进一步降低 13.1%，弹塑性物体降低 17.8%，证明残差模块有效弥补了物理模拟器的误差。
+  - **效率提升**：材料识别时间从 PhysTwin 的 930秒 和 PGND 的 8280秒 大幅降至 11.4秒，具备了在线适应新物体的能力。
+
+---
+</script>
+            <script>
+                const rawMdElement = document.getElementById('raw-markdown');
+                if (rawMdElement) {
+                    document.getElementById('content').innerHTML = marked.parse(rawMdElement.textContent);
+                    // 渲染后触发公式排版
+                    if (window.MathJax && window.MathJax.typesetPromise) {
+                        window.MathJax.typesetPromise();
+                    }
+                }
+                function copySources() { /* 原代码保持不变 */ }
+            </script>
+        </body>
+        </html>
+        
