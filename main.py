@@ -124,7 +124,7 @@ def only_filter_and_report(papers):
         
         try:
             completion = client_llm.chat.completions.create(
-                model="qwen3.7-max-2026-05-20",  # qwen-flash, qwen3.6-plus, qwen3-max, qwen3.5-flash
+                model="qwen3.7-max-2026-05-17",  # qwen-flash, qwen3.6-plus, qwen3-max, qwen3.5-flash
                 messages=[{"role": "user", "content": filter_prompt}]
             )
             res = completion.choices[0].message.content
