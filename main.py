@@ -5,6 +5,7 @@ from openai import OpenAI
 import os
 import re
 import json
+import time
 
 # --- 1. 核心配置 ---
 client_llm = OpenAI(
@@ -21,16 +22,37 @@ GITHUB_PAGES_URL = f"https://{repo_owner}.github.io/{repo_name}/"
 
 CATEGORIES = ['cs.RO']
 
+# 抓取/初筛过程中的失败告警，会追加到推送内容末尾。
+# 定义在此处以便 scrape_arxiv 与 only_filter_and_report 共用。
+FILTER_WARNINGS = []
+
 def scrape_arxiv(category):
     """抓取 Arxiv 数据，并提取日期前缀和总论文数"""
     url = f"https://arxiv.org/list/{category}/recent?show=500"
     headers = {'User-Agent': 'Mozilla/5.0'}
+    last_error = None
+    for attempt in range(1, 4):
+        try:
+            res = requests.get(url, headers=headers, timeout=15)
+            res.raise_for_status()
+            break
+        except Exception as e:
+            last_error = f"{type(e).__name__}: {e}"
+            print(f"[抓取 {category}] 第 {attempt}/3 次失败: {last_error}")
+            if attempt < 3:
+                time.sleep(2 ** attempt)
+    else:
+        FILTER_WARNINGS.append(f"⚠️ 抓取 arXiv {category} 列表连续 3 次失败（{last_error}），本次未获取到任何论文。")
+        return None, 0, []
+
     try:
-        res = requests.get(url, headers=headers, timeout=15)
         soup = BeautifulSoup(res.text, 'html.parser')
         dls = soup.find_all('dl', id='articles')
-        if not dls: return None, 0, []
-        
+        if not dls:
+            FILTER_WARNINGS.append(f"⚠️ arXiv {category} 页面结构异常（未找到论文列表），可能是页面改版，请检查解析逻辑。")
+            print(FILTER_WARNINGS[-1])
+            return None, 0, []
+
         # 提取标题日期
         raw_date_str = soup.find_all('h3')[0].text.strip()
         # raw_date_str = soup.find_all('h3')[1].text.strip() # yesterday
@@ -57,47 +79,173 @@ def scrape_arxiv(category):
             papers.append({"id": id_str, "title": title, "abstract": abstract[:1000]})
         
         return {"prefix": date_prefix, "total": total_entries}, len(papers), papers
-    except Exception: return None, 0, []
+    except Exception as e:
+        FILTER_WARNINGS.append(f"⚠️ 解析 arXiv {category} 列表出错（{type(e).__name__}: {e}），本次未获取到任何论文。")
+        print(FILTER_WARNINGS[-1])
+        return None, 0, []
+
+# 单篇论文送入模型的正文预算（字符）。按章节裁剪，实验章节优先保留。
+FULLTEXT_BUDGET = 90000
+# 章节优先级：数字越小越先保留。实验/方法必须优于 related work 和附录。
+SECTION_PRIORITY = [
+    (re.compile(r'experiment|result|evaluation|ablation|benchmark', re.I), 0),
+    (re.compile(r'method|approach|model|architecture|framework|algorithm', re.I), 1),
+    (re.compile(r'introduction|conclusion|discussion', re.I), 2),
+    (re.compile(r'related work|background|preliminar', re.I), 4),
+    (re.compile(r'appendix|acknowledg|impact statement|ethic', re.I), 5),
+]
+
+
+def _section_priority(heading):
+    """按标题判定章节优先级，未命中的给中等优先级 3。"""
+    for pattern, prio in SECTION_PRIORITY:
+        if pattern.search(heading):
+            return prio
+    return 3
+
 
 def get_arxiv_full_text(paper_id):
-    """利用 Arxiv HTML 渲染功能抓取正文，并剔除参考文献以节省 token"""
+    """抓取 Arxiv HTML 正文。
+
+    按章节而非字符位置裁剪：先剔除参考文献，再按优先级保留章节，
+    确保实验/结果章节不会因为排在正文后半部分而被截断丢弃。
+    """
     url = f"https://arxiv.org/html/{paper_id}"
     try:
         res = requests.get(url, timeout=20)
         if res.status_code != 200: return None
         soup = BeautifulSoup(res.text, 'html.parser')
-        
+
         # 1. 移除脚本、样式等无关标签
         for script in soup(["script", "style"]):
             script.decompose()
 
-        # 2. 核心修改：移除参考文献部分
-        # Arxiv HTML 常见的参考文献标识符包括类名 'ltx_bibliography' 或 ID 'bib'
+        # 2. 移除参考文献部分
         ref_tags = soup.find_all(['section', 'div'], class_=re.compile(r'bibliography|references', re.I))
         ref_tags += soup.find_all(['section', 'div'], id=re.compile(r'bib|references', re.I))
-        
         for tag in ref_tags:
             tag.decompose()
-            print(f"[{paper_id}] 已剔除参考文献部分")
 
-        # 3. 返回正文（保留前 30000 字符）
-        return soup.get_text()[:30000] 
+        parts = []
+
+        # 3. 摘要单独保留，它是标题/机构/贡献的主要来源
+        abstract = soup.find('div', class_=re.compile(r'ltx_abstract', re.I))
+        if abstract:
+            parts.append(("ABSTRACT", 0, abstract.get_text(" ", strip=True)))
+
+        # 4. 顶层章节（子章节包含在父章节文本里，避免重复计入）
+        sections = [s for s in soup.find_all('section')
+                    if s.find_parent('section') is None]
+
+        for sec in sections:
+            head_tag = sec.find(['h1', 'h2', 'h3', 'h4'])
+            heading = head_tag.get_text(" ", strip=True) if head_tag else ""
+            text = sec.get_text(" ", strip=True)
+            if not text:
+                continue
+            parts.append((heading or "(untitled)", _section_priority(heading), text))
+
+        # 5. 没有 section 结构的旧版 HTML：退回整篇文本
+        if not sections:
+            body = soup.get_text(" ", strip=True)
+            if not body:
+                return None
+            print(f"[{paper_id}] 无 section 结构，退回全文截断 {FULLTEXT_BUDGET} 字符")
+            return body[:FULLTEXT_BUDGET]
+
+        # 6. 按优先级填充预算，保留原文顺序输出
+        ordered = sorted(range(len(parts)), key=lambda i: (parts[i][1], i))
+        kept, used, dropped = set(), 0, []
+        for i in ordered:
+            heading, _, text = parts[i]
+            if used + len(text) <= FULLTEXT_BUDGET:
+                kept.add(i)
+                used += len(text)
+            else:
+                dropped.append(heading)
+
+        if dropped:
+            print(f"[{paper_id}] 预算不足，已丢弃低优先级章节: {', '.join(dropped[:6])}")
+
+        chunks = [f"## {parts[i][0]}\n{parts[i][2]}" for i in range(len(parts)) if i in kept]
+        return "\n\n".join(chunks) if chunks else None
     except Exception as e:
         print(f"抓取全文出错 {paper_id}: {e}")
         return None
 
+def _extract_json_array(text):
+    """从模型输出中提取 JSON 数组。
+
+    先尝试整体解析（配合 json_object 模式返回的 {"papers": [...]}），
+    再退回括号匹配。不用贪婪正则，避免输出含多个数组时从第一个 [
+    吞到最后一个 ] 导致解析失败。
+    """
+    if not text:
+        return None
+    try:
+        obj = json.loads(text)
+        if isinstance(obj, list):
+            return obj
+        if isinstance(obj, dict):
+            for value in obj.values():
+                if isinstance(value, list):
+                    return value
+    except json.JSONDecodeError:
+        pass
+
+    start = text.find('[')
+    while start != -1:
+        depth = 0
+        for pos in range(start, len(text)):
+            if text[pos] == '[':
+                depth += 1
+            elif text[pos] == ']':
+                depth -= 1
+                if depth == 0:
+                    try:
+                        return json.loads(text[start:pos + 1])
+                    except json.JSONDecodeError:
+                        break
+        start = text.find('[', start + 1)
+    return None
+
+
+def _filter_chunk_with_retry(prompt, batch_no, chunk_size, attempts=3):
+    """调用模型做初筛，失败重试。全部失败返回 None 以便上层记账。"""
+    for attempt in range(1, attempts + 1):
+        try:
+            completion = client_llm.chat.completions.create(
+                model="qwen3.7-max-2026-05-17",  # qwen-flash, qwen3.6-plus, qwen3-max, qwen3.5-flash
+                messages=[{"role": "user", "content": prompt}],
+                response_format={"type": "json_object"},
+            )
+            res = completion.choices[0].message.content
+            parsed = _extract_json_array(res)
+            if parsed is not None:
+                return parsed
+            reason = "输出无法解析为 JSON 数组"
+        except Exception as e:
+            reason = f"{type(e).__name__}: {e}"
+
+        print(f"[初筛批次 {batch_no}] 第 {attempt}/{attempts} 次失败（{chunk_size} 篇）: {reason}")
+        if attempt < attempts:
+            time.sleep(2 ** attempt)
+    return None
+
+
 def only_filter_and_report(papers):
     """仅执行初筛，返回高分 ID 列表"""
     if not papers: return "今日无新论文。"
-    
+
     all_filtered_papers = []
+    failed_batches = []
     for i in range(0, len(papers), 40):
         chunk = papers[i:i+40]
         
         filter_prompt = f"""你是一个专注于【大模型具身智能】的顶级研究员。请从以下论文中筛选出符合要求的论文，并为它们打分（1-10分，10分为极度相关）。
 
         ✅ 必须保留（相关度 7-10 分）：
-        1. VLA (Vision-Language-Action)、World Models (世界模型)、World Modeling、视频生成。
+        1. VLA (Vision-Language-Action)、WAM (World-Action-Model)、World Models (世界模型)、World Modeling、视频生成。
         2. World-Action Model、Video-Action Model、Diffusion Policy。
         3. 具身 Scaling Laws、跨具身数据集、多模态融合注意力。
         
@@ -108,41 +256,61 @@ def only_filter_and_report(papers):
         4. 经典视觉：单纯的人体姿态识别、纯 3D 重建(NeRF/GS)、单纯触觉。
         5. 多智能体协同/集群 (Swarm)、离散任务调度。
 
-        ⚠️ 输出极其严格限制：仅输出 JSON 格式数组，必须包含以下字段：
-        [
-          {{
-            "id": "论文ID",
-            "title_en": "英文原题",
-            "title_zh": "中文翻译标题",
-            "score": 9
-          }}
-        ]
-        
+        📏 打分标准（只输出 7 分及以上的论文）：
+        - 9-10 分：核心命题就是上述保留方向，且有新方法或新数据集。
+        - 7-8 分：属于保留方向，但为增量改进或纯评测/综述。
+        - 7 分以下：不要出现在输出里。
+
+        ⚠️ 输出极其严格限制：仅输出一个 JSON 对象，不要输出任何解释文字、不要用 markdown 代码块包裹。
+        对象只含 papers 一个键，值为数组：
+        {{
+          "papers": [
+            {{
+              "id": "论文ID",
+              "title_en": "英文原题",
+              "title_zh": "中文翻译标题",
+              "score": 9
+            }}
+          ]
+        }}
+        id 必须逐字复制待处理数据中的原值，不要改写、补全或凭空生成。
+        若本批没有任何符合要求的论文，返回 {{"papers": []}}，不要附加任何说明。
+
         待处理数据：
         {json.dumps(chunk)}
         """
         
-        try:
-            completion = client_llm.chat.completions.create(
-                model="qwen3.7-max-2026-05-17",  # qwen-flash, qwen3.6-plus, qwen3-max, qwen3.5-flash
-                messages=[{"role": "user", "content": filter_prompt}]
-            )
-            res = completion.choices[0].message.content
-            match = re.search(r'\[.*\]', res, re.DOTALL)
-            if match:
-                all_filtered_papers.extend(json.loads(match.group(0)))
-        except Exception: pass
+        batch_no = i // 40 + 1
+        parsed = _filter_chunk_with_retry(filter_prompt, batch_no, len(chunk))
+        if parsed is None:
+            failed_batches.append((batch_no, len(chunk)))
+        else:
+            all_filtered_papers.extend(parsed)
+
+    if failed_batches:
+        lost = sum(n for _, n in failed_batches)
+        FILTER_WARNINGS.append(
+            f"⚠️ 初筛有 {len(failed_batches)} 批失败（批次 "
+            f"{', '.join(str(b) for b, _ in failed_batches)}），"
+            f"约 {lost} 篇论文未被筛选，本次结果不完整。"
+        )
+        print(FILTER_WARNINGS[-1])
 
     # 过滤出 8 分以上的作为建议
     recommendations = [p for p in all_filtered_papers if p.get('score', 0) >= 8]
-    if not recommendations: return "今日无高分精选论文。"
+    if not recommendations:
+        if FILTER_WARNINGS:
+            return "今日无高分精选论文。\n\n" + "\n".join(FILTER_WARNINGS)
+        return "今日无高分精选论文。"
 
     report = "📊 **今日具身智能论文初筛建议**\n"
     report += "请复制 ID 到 GitHub 手动触发解析：\n\n"
     actions_url = f"https://github.com/{repo_owner}/{repo_name}/actions"
     report += f"👉 [点击去手动触发解析]({actions_url})\n\n"
     for p in recommendations:
-        report += f"- `ID: {p['id']}` | 分数: {p['score']} | {p.get('title_zh', '无标题')}\n"
+        report += f"- `ID: {p['id']}` | 分数: {p.get('score', '?')} | {p.get('title_zh', '无标题')}\n"
+    if FILTER_WARNINGS:
+        report += "\n" + "\n".join(FILTER_WARNINGS) + "\n"
     return report
 
 def deep_dive_only(papers_to_process):
@@ -153,45 +321,60 @@ def deep_dive_only(papers_to_process):
         paper_id = item['id']
         print(f"正在进行全文深度解析: {paper_id}...")
         full_text = get_arxiv_full_text(paper_id)
+        text_kind = "已按章节裁剪的全文" if full_text else "无可用内容"
 
         if not full_text:
             print(f"HTML 全文暂未生成，尝试抓取摘要页...")
-            res_abs = requests.get(f"https://arxiv.org/abs/{paper_id}", timeout=10)
-            if res_abs.status_code == 200:
-                abs_soup = BeautifulSoup(res_abs.text, 'html.parser')
-                full_text = abs_soup.find('blockquote', class_='abstract').text
-            else:
+            try:
+                res_abs = requests.get(f"https://arxiv.org/abs/{paper_id}", timeout=10)
+                abs_block = None
+                if res_abs.status_code == 200:
+                    abs_soup = BeautifulSoup(res_abs.text, 'html.parser')
+                    abs_block = abs_soup.find('blockquote', class_='abstract')
+                if abs_block:
+                    full_text = abs_block.text
+                    text_kind = "仅摘要，无正文"
+                else:
+                    full_text = None
+            except Exception as e:
+                print(f"摘要页抓取失败 {paper_id}: {e}")
                 full_text = None
         
         expert_prompt = f"""
-        Role: 你是一位具身智能领域研究员。请用平实、地道的中文对论文进行高信息密度的总结。
-        Task: 像在组会上给同事分享一样，直接讲清楚论文做了什么、改了哪里、效果如何。严禁过度修饰，严禁使用炫技式的词汇。
+        Role: 你是一位资深的AI/计算机科学研究员，能快速读懂任意方向的论文或技术文章。请用平实、地道的中文做高信息密度的总结。
+        Task: 像在组会上给同事分享一样，直接讲清楚这篇工作做了什么、改了哪里、效果如何。严禁过度修饰，严禁使用炫技式的词汇。先判断文章的领域和类型（方法创新/理论分析/系统工程/数据集/综述等），再用该领域的行话来讲。
 
-        请严格按以下结构输出（使用 Markdown）：
+        ⚠️ 关于输入：下文可能是按章节裁剪后的正文（低优先级章节如 related work、附录可能已被删除），
+        也可能只有摘要。请只依据实际给到的内容作答。
+        任何字段若正文中找不到依据，写「原文未提及」，严禁猜测或编造，
+        尤其是数据集名称、baseline 名称和具体数值——宁可留空，也不要填一个看似合理的数字。
+
+        请严格按以下结构输出（使用 Markdown），字段名和层级不要改动：
 
         **0. 论文标题**
-        - **英文标题**: [在此填入论文原文标题]
-        - **中文标题**: [在此填入精准的中文翻译]
-        - **研究机构**: [在此填入作者所属的主要单位，如：DeepMind, Stanford University等]
-
+        - **英文标题**: [论文原文标题]
+        - **中文标题**: [精准的中文翻译]
+        - **研究机构**: [作者所属的主要单位，如 DeepMind、Stanford University 等]
+        - **一句话总结**: [用一句话讲清这篇工作最核心的贡献，让人扫一眼就知道要不要细看]
+    
         **1. 整体逻辑**
-        - **研究任务**: [论文研究的任务是什么，如：根据文本生成图像]
-        - **研究动机**: [例如发现了什么问题需要改进，比如VLA生成动作的速度太慢]
-        - **本质改动**: [本质改动，如：用视频生成代替扩散策略做轨迹预测]
-        - **技术溯源**: [基于 CLIP/OpenVLA/Llama3 等哪些开源基座？]
-
+        - **研究任务**: [论文要解决的任务是什么，如：根据文本生成图像 / 加速大模型推理 / 构建某类基准]
+        - **研究动机**: [发现了什么问题需要改进，或现有方法有什么不足]
+        - **本质改动**: [这篇工作最核心的思路改动，一句话点破它和前人不一样在哪]
+        - **技术溯源**: [基于哪些已有工作或开源基座？如 CLIP / OpenVLA / Llama3 / Transformer 等]
+    
         **2. 技术拆解**
-        - **重点改进**: [本质改动对应的模型或算法的改动]
-        - **架构细节**: [输入输出、具体的模型结构、模型规模等]
-        - **核心 Loss**: [主 Loss 构成，是否有辅助任务（如视频重建）？]
-
+        - **核心方法**: [本质改动对应的具体方法、算法或系统设计]
+        - **关键细节**: [输入输出、模型结构或系统架构、规模、关键超参等]
+        - **训练/优化目标**: [主要的损失函数或优化目标；若非学习类工作，说明关键算法或核心机制]
+    
         **3. 实验结果**
-        - **数据集和baseline**: [实验用的数据集和对比的方法]
-        - **评价指标**: [实验用的评价指标，如何评价]
-        - **实验结果**: [比baseline好多少]
+        - **实验设置**: [用的数据集与对比对象（baseline）；系统类工作则说明测试环境与负载]
+        - **评价指标**: [用什么指标衡量、怎么评价]
+        - **主要结果**: [比 baseline 好多少，或验证了什么结论]
 
-        待处理全文内容：
-        {full_text if full_text else "（全文抓取失败，请基于摘要分析核心逻辑）"}
+        待处理内容（{text_kind}）：
+        {full_text if full_text else "（全文与摘要均抓取失败，无可用内容，请在每个字段填写「原文未提及」）"}
         """
         
         try:
