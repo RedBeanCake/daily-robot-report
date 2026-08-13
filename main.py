@@ -215,7 +215,7 @@ def _filter_chunk_with_retry(prompt, batch_no, chunk_size, attempts=3):
     for attempt in range(1, attempts + 1):
         try:
             completion = client_llm.chat.completions.create(
-                model="qwen3.7-max-2026-05-17",  # qwen-flash, qwen3.6-plus, qwen3-max, qwen3.5-flash
+                model="qwen3.7-flash",  # qwen-flash, qwen3.6-plus, qwen3-max, qwen3.5-flash
                 messages=[{"role": "user", "content": prompt}],
                 response_format={"type": "json_object"},
             )
@@ -380,7 +380,7 @@ def deep_dive_only(papers_to_process):
         try:
             # 深度解析建议用逻辑更强的模型（如 qwen-plus）
             completion = client_llm.chat.completions.create(
-                model="qwen3.7-max-2026-05-17",  # qwen3.6-plus, qwen3.5-flash
+                model="qwen3.7-plus",  # qwen3.6-plus, qwen3.5-flash
                 messages=[{"role": "user", "content": expert_prompt}]
             )
             report = completion.choices[0].message.content
