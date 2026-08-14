@@ -173,6 +173,54 @@ def get_arxiv_full_text(paper_id):
         print(f"抓取全文出错 {paper_id}: {e}")
         return None
 
+
+def get_arxiv_metadata(paper_id):
+    """从 arXiv 摘要页读取权威标题和摘要，避免让模型猜论文名。"""
+    last_error = None
+    for attempt in range(1, 4):
+        try:
+            res = requests.get(
+                f"https://arxiv.org/abs/{paper_id}",
+                headers={'User-Agent': 'Mozilla/5.0'},
+                timeout=10,
+            )
+            res.raise_for_status()
+            soup = BeautifulSoup(res.text, 'html.parser')
+
+            title_tag = soup.find('h1', class_='title')
+            title = title_tag.get_text(" ", strip=True) if title_tag else ""
+            title = re.sub(r'^Title:\s*', '', title, flags=re.I).strip()
+
+            abstract_tag = soup.find('blockquote', class_='abstract')
+            abstract = abstract_tag.get_text(" ", strip=True) if abstract_tag else ""
+            abstract = re.sub(r'^Abstract:\s*', '', abstract, flags=re.I).strip()
+            if title or abstract:
+                return title, abstract
+            last_error = "页面中未找到标题和摘要"
+        except Exception as e:
+            last_error = f"{type(e).__name__}: {e}"
+
+        if attempt < 3:
+            time.sleep(2 ** attempt)
+
+    print(f"arXiv 元数据抓取失败 {paper_id}: {last_error}")
+    return "", ""
+
+
+def _replace_report_field(report, field_name, value):
+    """用可信元数据覆盖模型生成的字段值。"""
+    pattern = rf"(-\s*\*\*{re.escape(field_name)}\*\*\s*[:：]\s*).*$"
+    return re.sub(pattern, lambda match: match.group(1) + value, report, count=1, flags=re.M)
+
+
+def _remove_title_placeholders(report):
+    """移除旧提示词遗留的标题占位说明。"""
+    return re.sub(
+        r"\s*[（(]?原文未提供完整论文大标题，以模型名称代指[）)]?",
+        "",
+        report,
+    )
+
 def _extract_json_array(text):
     """从模型输出中提取 JSON 数组。
 
@@ -320,29 +368,36 @@ def deep_dive_only(papers_to_process):
     for idx, item in enumerate(papers_to_process, 1):
         paper_id = item['id']
         print(f"正在进行全文深度解析: {paper_id}...")
+        metadata_title, metadata_abstract = get_arxiv_metadata(paper_id)
+        paper_title = metadata_title or item.get('title', '').strip()
+        display_title = paper_title or f"arXiv:{paper_id}"
+        if paper_title:
+            title_metadata_prompt = f"""已确认的 arXiv 元数据：
+        - arXiv ID: {paper_id}
+        - 英文标题: {paper_title}
+
+        论文英文标题必须逐字使用上面的英文标题，不得缩写、改写成模型名称，
+        也不得添加“标题未提供”“以模型名称代指”等解释。"""
+        else:
+            title_metadata_prompt = f"""本次未能取得 arXiv 标题元数据。
+        - arXiv ID: {paper_id}
+
+        英文标题字段请填写 arXiv:{paper_id}，不要猜测标题，
+        也不要添加“标题未提供”“以模型名称代指”等解释。"""
         full_text = get_arxiv_full_text(paper_id)
         text_kind = "已按章节裁剪的全文" if full_text else "无可用内容"
 
         if not full_text:
-            print(f"HTML 全文暂未生成，尝试抓取摘要页...")
-            try:
-                res_abs = requests.get(f"https://arxiv.org/abs/{paper_id}", timeout=10)
-                abs_block = None
-                if res_abs.status_code == 200:
-                    abs_soup = BeautifulSoup(res_abs.text, 'html.parser')
-                    abs_block = abs_soup.find('blockquote', class_='abstract')
-                if abs_block:
-                    full_text = abs_block.text
-                    text_kind = "仅摘要，无正文"
-                else:
-                    full_text = None
-            except Exception as e:
-                print(f"摘要页抓取失败 {paper_id}: {e}")
-                full_text = None
+            print("HTML 全文暂未生成，使用 arXiv 摘要页内容...")
+            full_text = metadata_abstract or None
+            if full_text:
+                text_kind = "仅摘要，无正文"
         
         expert_prompt = f"""
         Role: 你是一位资深的AI/计算机科学研究员，能快速读懂任意方向的论文或技术文章。请用平实、地道的中文做高信息密度的总结。
         Task: 像在组会上给同事分享一样，直接讲清楚这篇工作做了什么、改了哪里、效果如何。严禁过度修饰，严禁使用炫技式的词汇。先判断文章的领域和类型（方法创新/理论分析/系统工程/数据集/综述等），再用该领域的行话来讲。
+
+        {title_metadata_prompt}
 
         ⚠️ 关于输入：下文可能是按章节裁剪后的正文（低优先级章节如 related work、附录可能已被删除），
         也可能只有摘要。请只依据实际给到的内容作答。
@@ -384,13 +439,13 @@ def deep_dive_only(papers_to_process):
                 messages=[{"role": "user", "content": expert_prompt}]
             )
             report = completion.choices[0].message.content
+            report = _replace_report_field(report, "英文标题", display_title)
+            report = _remove_title_placeholders(report)
 
             # --- 提取逻辑 ---
-            import re
-            title_en = re.search(r"英文标题\*\*: (.*)", report)
-            title_zh = re.search(r"中文标题\*\*: (.*)", report)
-            affiliation = re.search(r"研究机构\*\*: (.*)", report)
-            t_en = title_en.group(1).strip() if title_en else f"Arxiv: {paper_id}"
+            title_zh = re.search(r"中文标题\*\*\s*[:：]\s*(.*)", report)
+            affiliation = re.search(r"研究机构\*\*\s*[:：]\s*(.*)", report)
+            t_en = display_title
             t_zh = title_zh.group(1).strip() if title_zh else ""
             aff = affiliation.group(1).strip() if affiliation else "未知机构"
             
