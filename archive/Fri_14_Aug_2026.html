@@ -1,0 +1,235 @@
+
+        <!DOCTYPE html>
+        <html lang="zh-CN">
+        <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>🤖 具身大模型简报 - Fri, 14 Aug 2026 (VLA: 5 of 36 entries)</title>
+            <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.2.0/github-markdown.min.css">
+            <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+            <script>
+                window.MathJax = {
+                    tex: { inlineMath: [['$', '$'], ['\\(', '\\)']], displayMath: [['$$', '$$'], ['\\[', '\\]']] },
+                    options: { skipHtmlTags: ['script', 'style', 'textarea'] }
+                };
+            </script>
+            <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+            <style>
+                .markdown-body { box-sizing: border-box; min-width: 200px; max-width: 980px; margin: 0 auto; padding: 45px; }
+                @media (max-width: 767px) { .markdown-body { padding: 15px; } }
+            </style>
+        </head>
+        <body class="markdown-body">
+            <a href='../index.html' style='margin-bottom:20px; display:block;'>← 返回主索引</a>
+            <h1>🤖 具身大模型简报 - Fri, 14 Aug 2026 (VLA: 5 of 36 entries)</h1>
+            <div id="content"></div>
+            
+            <script type="text/markdown" id="raw-markdown">### 1. 🔥 [Decoding Task Progress from VLA Representations] (从VLA表征中解码任务进度)
+- **研究机构**: `原文未提及`
+- **Arxiv ID**: `2608.13474` | [点击跳转](https://arxiv.org/abs/2608.13474)
+
+**0. 论文标题**
+- **英文标题**: Decoding Task Progress from VLA Representations
+- **中文标题**: 从VLA表征中解码任务进度
+- **研究机构**: 原文未提及
+- **一句话总结**: 本文通过线性探针发现VLA内部激活中线性编码了“任务进度”信号，并利用该信号构建了一个无需OOD标签的运行时异常检测器。
+
+**1. 整体逻辑**
+- **研究任务**: 解析视觉-语言-动作模型（VLA）的内部表征，提取“任务进度”这一标量信号，并将其用于运行时的分布外（OOD）状态检测。
+- **研究动机**: VLA在部署时容易因OOD状态发生静默失败，而现有的OOD检测方法要么依赖对训练分布的记忆（如密度/距离法），要么需要昂贵的OOD标签（监督法），缺乏轻量且无需额外标签的运行时监控工具。
+- **本质改动**: 借鉴机械可解释性方法，直接用线性探针从VLA的残差流激活中读取“任务进度”（归一化剩余时间），并将其预测残差作为无监督的OOD检测信号，而非训练额外的外部评估模型。
+- **技术溯源**: 基于 $\pi_{0.5}$ 模型（视觉-语言骨干为 PaliGemma，包含 SigLIP 和 Gemma），实验数据集为 VLABench。
+
+**2. 技术拆解**
+- **核心方法**: 1) 定义任务进度为轨迹归一化剩余时间，在VLA中间层提取残差流激活训练线性探针；2) 提出弱可解码性、强可解码性（语言反事实扰动）和可引导性（激活注入）三个评估维度来严格界定表征性质；3) 设计基于进度预测残差的无监督OOD检测器。
+- **关键细节**: 输入为图像、本体感觉和语言提示；探针为单层线性网络；为获得强可解码性，采用对比 hinge loss 结合 BCE anchor 训练探针，使其既对语言替换敏感又保持进度可读性；OOD检测器通过计算预测进度与预期进度的残差 $V_\tau(t)$，超过阈值即触发报警。
+- **训练/优化目标**: 弱可解码性使用 L1 损失（MAE）；强可解码性使用 within-pair hinge loss（拉开反事实样本距离）加上 BCE anchor loss（保持绝对进度校准）。
+
+**3. 实验结果**
+- **实验设置**: 数据集为 VLABench（10个操作任务，5000条轨迹）；对比的 OOD 检测 baseline 包括 Mahalanobis、VAE、SAFE-MLP 和 SAFE-LSTM；测试环境引入高斯噪声、颜色偏移、模糊和遮挡四种 OOD 图像扰动。
+- **评价指标**: 探针解码能力使用 $R^2$（决定系数）和 MAE；OOD 检测使用 AUROC（分为 per-replan 和 per-episode 聚合评估）。
+- **主要结果**: 
+  1) 任务进度在 $\pi_{0.5}$ 早期层弱可解码，且该信号在大规模机器人预训练阶段即已形成，而非来自任务微调；
+  2) 进度信号具备强可解码性（通过反事实训练对语言扰动敏感），但**不可引导**（在激活中注入进度信号无法改变模型的实际动作输出，揭示了表征与控制的脱节）；
+  3) 无监督进度检测器泛化性极强，在跨任务和跨扰动模式下表现优异，其 per-episode AUROC（如跨扰动 unseen 模式下达到 0.960）超越了需要 OOD 标签的 SOTA 监督方法（SAFE-MLP）。
+
+---
+
+
+### 2. 🔥 [ContactGuard: Pre-Contact Execution Monitoring with Action-Conditioned Latent World Models] (ContactGuard：基于动作条件化潜在世界模型的接触前执行监控)
+- **研究机构**: `原文未提及`
+- **Arxiv ID**: `2608.13438` | [点击跳转](https://arxiv.org/abs/2608.13438)
+
+**0. 论文标题**
+- **英文标题**: ContactGuard: Pre-Contact Execution Monitoring with Action-Conditioned Latent World Models
+- **中文标题**: ContactGuard：基于动作条件化潜在世界模型的接触前执行监控
+- **研究机构**: 原文未提及
+- **一句话总结**: 提出 ContactGuard，在物理接触发生前，利用动作条件化的潜在世界模型推演未来视觉特征，从而提前中止底层视觉运动策略可能失败的抓取动作。
+
+**1. 整体逻辑**
+- **研究任务**: 接触丰富的机器人操作任务（特别是抓取）中的接触前执行监控与故障预测。
+- **研究动机**: 现有的故障检测多在物理接触发生后触发（后知后觉）。但在腕部相机视角下，如果接近动作本身有偏差（如偏离中心、只捏住边缘），接触瞬间就会导致物体移位或滑落，事后检测根本来不及。因此，需要在接触发生前，评估底层策略即将执行的动作块（action chunk）的后果。
+- **本质改动**: 放弃计算昂贵的像素级视频预测，也不同于将世界模型用于规划或策略学习；本文把潜在世界模型作为一个与底层策略解耦的“黑盒验证器”，在潜在空间（latent space）中利用策略输出的动作块自回归推演未来状态，并在接触前用轻量级分类器读出失败概率。
+- **技术溯源**: 基于 JEPA (Joint-Embedding Predictive Architecture) 思想，具体架构参考 LeWorldModel (LeWM)；底层视觉运动策略采用 ACT (Action Chunking with Transformers)；视觉编码器采用 ViT-Tiny。
+
+**2. 技术拆解**
+- **核心方法**: 
+  1. **两阶段训练**：先用无标签机器人轨迹训练一个多视角潜在世界模型，学习视觉动态；冻结该模型后，再用少量带标签的接触前片段训练一个轻量级逻辑回归探针（probe）。
+  2. **接触前推演与拦截**：部署时，监控器扫描策略输出的动作块，在夹爪闭合前（如提前 0.5s）锚定当前状态，将动作块输入冻结的世界模型，自回归推演 K 步到接触后的潜在状态。
+  3. **故障打分**：将推演出的未来潜在特征输入探针，若预测失败概率超过阈值，则在接触发生前直接中止执行，不修改底层策略。
+- **关键细节**: 
+  - **输入输出**：输入为多视角 RGB 图像（224×224）和关节空间动作；输出为 192 维的潜在特征。
+  - **模型结构**：视觉编码器为 ViT-Tiny，多视角特征均值池化后线性投影；预测器为 4 层 AdaLN-zero 条件化的因果 Transformer。
+  - **规模与超参**：潜在维度 D=192，训练上下文窗口 C=3；部署时推演步数 K=30（30Hz 下约 1 秒），锚点设在闭合前 15 帧（0.5s）。
+- **训练/优化目标**: 
+  - **世界模型**：带 SIGReg 防崩溃正则化的下一步潜在特征均方误差 (MSE) 回归损失。
+  - **故障探针**：带 L2 正则化和类别平衡权重的逻辑回归交叉熵损失。
+
+**3. 实验结果**
+- **实验设置**: 
+  - **数据集与环境**：14 自由度 AgileX Piper 双臂机器人，3 个同步 RGB 相机。4 个真实世界抓取任务：杯子抓取放置、盒子抓取放置、铅笔与笔记本、毛巾折叠。
+  - **对比对象 (baseline)**：单视角世界模型 (LeWM)、直接线性分类 (Direct-linear，不推演直接用当前特征和动作分类)、当前潜在状态监控 (Current latent，用当前特征代替推演特征)、外部故障检测器 (FAIL-Detect, RND, SAFE)。
+- **评价指标**: ROC AUC, 平衡准确率 (Balanced Accuracy), 精确率 (Precision), 召回率 (Recall), 误中止率 (FAR)。
+- **主要结果**: 
+  - **全面优于 Baseline**：在 4 个真实机器人闭环任务中，ContactGuard 的 ROC AUC 和平衡准确率全面优于单视角 LeWM 和 Direct-linear（例如杯子任务 AUC 从 0.928 提升至 0.992，误中止率降至 0.120）。
+  - **超越现有检测器**：相比外部检测器（SAFE 等）和 Current latent 消融实验，ContactGuard 在离线和闭环测试中均取得最高 AUC（如杯子任务离线 AUC 达 0.982）。
+  - **信息源验证**：动作条件化消融证明，打乱或置零动作会导致 AUC 骤降至随机水平（如 0.493），证明模型确实是在预测特定动作的后果，而非单纯识别高风险的静态视觉状态。
+  - **实时性**：在 RTX 5090 上，完整的编码+推演+分类耗时约 19.18 ms（K=30），完全满足接触前的实时控制需求，不拖慢底层策略。
+
+---
+
+
+### 3. 🔥 [H2R-Bench: Benchmarking Human-to-Robot Manipulation Video Generation in World Models] (H2R-Bench：在世界模型中对人-机器人操作视频生成进行基准测试)
+- **研究机构**: `原文未提及`
+- **Arxiv ID**: `2608.13049` | [点击跳转](https://arxiv.org/abs/2608.13049)
+
+**0. 论文标题**
+- **英文标题**: H2R-Bench: Benchmarking Human-to-Robot Manipulation Video Generation in World Models
+- **中文标题**: H2R-Bench：在世界模型中对人-机器人操作视频生成进行基准测试
+- **研究机构**: 原文未提及
+- **一句话总结**: 提出了 H2R-Bench 基准，专门评估视频生成模型将人类第一视角操作视频跨具身转换为指定机器人操作视频的能力，揭示了当前模型在“视觉生成质量”与“真实物理转移能力”之间的巨大脱节。
+
+**1. 整体逻辑**
+- **研究任务**: 构建一个评估基准，测试视频世界模型能否将人类第一视角操作视频（源）转换为特定机器人形态（目标）的操作视频，同时严格保留源视频的任务意图、动作逻辑和物理交互证据。
+- **研究动机**: 机器人操作数据收集昂贵，而人类第一视角视频丰富。现有的视频生成基准主要关注视觉保真度、时序一致性或文本对齐，缺乏对“跨具身操作转移”的评估，无法诊断模型在具身替换（如人手换机械爪）、功能接触和任务执行上的特定失败。
+- **本质改动**: 从传统的“文本/图像条件生成”转向“源视频相对（source-relative）的跨具身转移评估”。不要求模型死板模仿人类轨迹，但强制要求生成视频在替换执行主体的同时，必须忠实保留源视频的任务目标、动作事件和功能接触。
+- **技术溯源**: 基于 EgoDex 数据集构建源视频；使用 Qwen3.7-Plus 进行结构化标注；调用 Gemini 3.5 Flash、Qwen3.7-Plus 和 GPT-5.4 作为多模态大模型（MLLM）裁判进行自动化评估。
+
+**2. 技术拆解**
+- **核心方法**: 构建 H2R-Bench 数据集及转移感知（transfer-aware）评估协议。从 EgoDex 提取 120 个第一视角视频，配对 2 种目标机器人形态（平行爪夹爪和灵巧手），生成 240 个测试用例，覆盖 6 类操作任务。设计了 5 个维度的评估指标，并加权得出核心指标 H2RCore。
+- **关键细节**: 
+  - **输入输出**: 输入为人类源视频（或按模型接口限制的关键帧）+ 文本提示（指定任务和目标机器人形态）；输出为对应机器人形态的操作视频。
+  - **任务覆盖**: 6个操作家族（刚性物体重排、机构驱动、插入装配、可变形物体配置、散装物料转移、表面/材料转化）。
+  - **评估维度**: M1(目标状态完成)、M2(动作事件完成)、M3(功能接触转移)、M4(具身正确性)、M5(通用视频质量)。
+  - **权重分配**: H2RCore = 0.15×M1 + 0.15×M2 + 0.30×M3 + 0.30×M4 + 0.10×M5。M3和M4权重最高，强调物理交互和具身形态的正确性。
+- **训练/优化目标**: 本文为基准测试（数据集/评估协议）工作，无模型训练。核心机制是基于 MLLM 的结构化评分规则，通过对比源视频和生成视频的 25 个均匀采样帧，在 0-4 的评分标准（rubric）下对 5 个维度进行独立打分并归一化。
+
+**3. 实验结果**
+- **实验设置**: 测试了 11 个 SOTA 视频生成模型（5个闭源：Seedance 2.0, Wan2.7, Kling-V3, Veo 3.1, Grok Imagine Video；6个开源：Wan2.2, LTX-2.3, HunyuanVideo 1.5-I2V, SkyReels-V3-R2V, LongCat, Mitty-EPIC14B）。使用各模型原生支持的最强源条件接口（完整视频或关键帧）进行生成。
+- **评价指标**: M1-M4 由三个 MLLM 裁判独立打分后平均；M5 由 MUSIQ（成像质量）、CLIP（美学质量）、时序稳定性和 AMT-S（运动平滑度）计算。核心指标为 H2RCore（0-100分）。同时引入人工评估验证 MLLM 打分的一致性。
+- **主要结果**: 
+  - **整体表现有限**: 当前模型在 H2R 转移上能力依然不足。表现最好的 Seedance 2.0 在灵巧手任务上 H2RCore 达到 84.6，但多数模型在具身一致性和功能接触上频繁失败（如生成视频里还是人手，或者机械爪抓错了位置）。
+  - **视觉质量与转移能力脱节**: 通用视频质量（M5）与 H2RCore 排名弱相关（Spearman ρ = 0.14）。例如 HunyuanVideo 1.5-I2V 视频质量最高，但 H2RCore 垫底（约 30 分），说明“画面好看”不等于“物理转移正确”。
+  - **目标具身影响**: 灵巧手（Dexterous Hand）形态因更接近人手，11 个模型中有 9 个在该形态下得分更高（平均 H2RCore 提升 3.3 分），接触转移和具身正确性提升尤为明显。
+  - **参考图消融**: 提供目标机器人参考图像对部分模型（如 Wan2.7）有显著提升，但对另一些模型（如 Kling-V3, Seedance 2.0）反而导致性能下降，说明不同模型对额外视觉条件的利用方式存在差异。
+  - **评估可靠性**: MLLM 自动评分与人工评分高度一致（场景内 Spearman ρ = 0.883，总体 Pearson r = 0.930），证明了该自动化评估协议的有效性。
+
+---
+
+
+### 4. 🔥 [Temporal GRPO: Beyond Trajectory-Level Credit in Vision-Language-Action Reinforcement Learning] (时序GRPO：超越视觉-语言-动作强化学习中的轨迹级信用分配)
+- **研究机构**: `原文未提及`
+- **Arxiv ID**: `2608.13026` | [点击跳转](https://arxiv.org/abs/2608.13026)
+
+**0. 论文标题**
+- **英文标题**: Temporal GRPO: Beyond Trajectory-Level Credit in Vision-Language-Action Reinforcement Learning
+- **中文标题**: 时序GRPO：超越视觉-语言-动作强化学习中的轨迹级信用分配
+- **研究机构**: 原文未提及
+- **一句话总结**: 提出 Temporal GRPO，通过将长轨迹拆解为可检测的有序阶段并进行阶段级条件比较，解决了 VLA 强化学习中因轨迹整体失败而误罚前期正确动作的“信用混淆”问题。
+
+**1. 整体逻辑**
+- **研究任务**: 视觉-语言-动作（VLA）模型的强化学习后训练（post-training），重点解决长时距机器人操作任务中的策略优化问题。
+- **研究动机**: 现有的基于结果的 VLA-RL 方法（如 GRPO）将整条轨迹的最终成败作为唯一信号，计算出一个全局优势值并广播给轨迹中的所有动作。这会导致“轨迹级信用混淆（trajectory-level credit aliasing）”：如果一条长轨迹前期阶段成功但最终失败，其前期正确的动作也会受到惩罚，从而破坏已掌握的子技能并降低样本效率。
+- **本质改动**: 放弃对整条轨迹进行无条件的全局比较，改为构建可检测的有序任务阶段，仅让进入同一阶段的轨迹进行局部比较，并将计算出的“阶段优势”精准分配给产生该阶段结果的动作时间区间。
+- **技术溯源**: 基于 Group Relative Policy Optimization (GRPO) 框架，基座模型使用了 OpenVLA-OFT，阶段语义提取使用了冻结的 RynnBrain-4B 模型。
+
+**2. 技术拆解**
+- **核心方法**: Temporal GRPO（时序 GRPO）。包含三个核心步骤：1) **任务条件阶段生成**：利用大模型生成候选阶段，并通过 Stage Compiler 编译为具有线性先决条件和可检测完成条件的信用阶段；2) **轨迹到阶段对齐**：利用关系检测器确定每个阶段的完成时间，将轨迹切分为对应不同阶段的动作区间；3) **阶段条件优势重构**：仅对满足前置条件并进入当前阶段的轨迹计算组内相对优势，并将该优势仅分配给对应阶段的动作区间。
+- **关键细节**: 
+  - **阶段生成与对齐**：用 RynnBrain-4B 提取语义阶段后，Stage Compiler 将其转化为带先决依赖的信用阶段。关系检测器（训练时使用仿真器特权状态）记录阶段首次稳定完成的时间，划分动作区间。若未完成当前阶段，后续动作区间归为当前阶段的失败。
+  - **优势计算门控**：引入参与变量 $V_{i,k}$，未进入该阶段的轨迹不参与比较（视为无效而非失败）。计算阶段内二元结果（成功/失败）的均值和标准差，得到阶段条件优势。
+  - **时间步映射**：将阶段优势映射回具体的时间步，替换原 GRPO 中的全局优势。
+- **训练/优化目标**: 最大化阶段条件化的 GRPO 目标函数 $\mathcal{J}_{\mathrm{Temporal\mbox{-}GRPO}}(\theta)$。在保持完整轨迹采样和策略似然比裁剪机制的基础上，将信用比较和分配从完整轨迹细化到特定阶段的动作区间，所有阶段区间在同一训练批次中联合优化单一 VLA 策略。
+
+**3. 实验结果**
+- **实验设置**: 
+  - **数据集/环境**：RoboTwin 2.0（评估任务级性能和样本效率），LIBERO-Long（用于控制实验和消融实验，分析信用分配机制）。
+  - **对比对象（baseline）**：VLA 基线 $\pi_0$、RDT-1B、OpenVLA-OFT (SFT)；VLA-RL 方法 SimpleVLA-RL、TGRPO、Trajectory-GRPO、Stage-Reward GRPO。所有 RL 方法均从相同的 OpenVLA-OFT SFT checkpoint 初始化，并匹配相同的交互与训练预算。
+- **评价指标**: 任务成功率（Task success rate），以及固定交互预算下的样本效率（Sample efficiency）。在 LIBERO-Long 上额外使用阶段条件完成概率的变化量（$\Delta p_k$）来衡量信用分配的准确性。
+- **主要结果**: 
+  - 在 RoboTwin 2.0 上，Temporal GRPO 的宏平均成功率达到 75.8%，比最强 baseline（SimpleVLA-RL 的 68.8%）高出 7.0 个百分点，且在短、中、长/超长时距任务上均有 6.2-8.3 个百分点的一致提升。样本效率曲线也显著优于 Trajectory-GRPO。
+  - 在 LIBERO-Long 的控制实验中，Trajectory-GRPO 会显著降低共享前置阶段的成功率（发生误罚），而 Temporal GRPO 能保持前置阶段成功率基本不变，并将提升集中在轨迹结果首次出现差异的阶段（$m_d$），验证了其精准的局部信用分配能力。
+  - 消融实验表明，移除“同阶段分组（same-stage grouping）”和“进入阶段门控（entered-stage gating）”会导致最大的性能下降（分别降至 90.6% 和 92.5%），证明了阶段条件比较和门控机制的核心作用。
+
+---
+
+
+### 5. 🔥 [DreamX-Phi 1.0: Action-Conditioned Video World Model for Robotic Manipulation] (DreamX-Phi 1.0：用于机器人操作的动作条件视频世界模型)
+- **研究机构**: `原文未提及`
+- **Arxiv ID**: `2608.13489` | [点击跳转](https://arxiv.org/abs/2608.13489)
+
+**0. 论文标题**
+- **英文标题**: DreamX-Phi 1.0: Action-Conditioned Video World Model for Robotic Manipulation
+- **中文标题**: DreamX-Phi 1.0：用于机器人操作的动作条件视频世界模型
+- **研究机构**: 原文未提及
+- **一句话总结**: 提出了一种基于Wan2.2基座的动作条件视频世界模型，通过将SE(3)刚体变换注入注意力机制并辅以深度与物体一致性监督，解决了双臂机器人视频预测中动作不忠实和物体状态漂移的问题，在WorldArena 2.0挑战赛中取得Track 1第一、Track 2第二的成绩。
+
+**1. 整体逻辑**
+- **研究任务**: 构建用于机器人操作的动作条件视频世界模型（Forward Dynamics Model），即给定初始帧、语言指令和预设的双臂动作轨迹（末端执行器位姿和夹爪状态），预测未来的视频观测。
+- **研究动机**: 现有方法通常将动作压缩为紧凑token或特征调制，丢失了末端执行器的刚体几何结构。这导致生成的视频虽然逼真，但不忠实于给定动作（如动错手臂、丢失物体、发生穿透），无法准确反映物理交互。
+- **本质改动**: 摒弃隐式的动作token化，将双臂的SE(3)空间变换通过PRoPE（投影相对位置编码）直接注入Transformer的自注意力层，并引入辅助深度分支和基于掩码的物体一致性监督，从几何和物理层面强制视频生成忠实于动作指令。
+- **技术溯源**: 基于 Wan2.2-TI2V-5B（视频扩散Transformer）；结合了 PRoPE（几何注意力）、SAM3（物体掩码）、V-JEPA（视觉特征关系监督）、Depth Anything 3（深度估计）以及 DMD2（分布匹配蒸馏）。
+
+**2. 技术拆解**
+- **核心方法**: 
+  1. **PRoPE动作控制**：将双臂的SE(3)轨迹转换为相对变换矩阵，通过PRoPE机制注入注意力层。将注意力头按臂分组以保留刚体结构，夹爪开合状态作为独立偏置注入。
+  2. **辅助深度监督**：增加轻量级深度分支（复制RGB主干最后M个block），通过交叉注意力读取RGB特征，在潜空间进行MSE监督，增强3D几何一致性（推理时可不使用）。
+  3. **物体中心物理一致性**：使用SAM3提取操作物体掩码对RGB流匹配损失进行加权，迫使模型关注接触区域误差；使用冻结的V-JEPA教师模型，通过匹配Gram矩阵约束物体特征在时空上的演化，防止抓取时物体形变或身份漂移。
+  4. **少步推理蒸馏**：使用DMD2结合对抗训练，将多步扩散过程蒸馏为少步学生模型，提升部署效率。
+- **关键细节**: 
+  - **输入输出**：输入为单帧RGB、语言指令、双臂动作序列（末端位姿+夹爪状态）；输出为未来RGB视频（训练时含深度视频）。
+  - **模型结构**：基座为5B参数的Wan2.2-TI2V-5B。PRoPE控制中，所有臂共享同一参考系并进行幅度归一化；深度分支与RGB主干单向连接（深度读RGB，RGB不读深度）。
+  - **数据规模**：混合了Ego4D (3700h)、AgiBot World (1900h)、Cosmos3-DROID (350h)、RoboCOIN (618h) 及 RoboTwin 2.0 (25000 clips) 等异构数据。
+- **训练/优化目标**: 
+  - **主损失**：Flow-matching（流匹配）损失，其中RGB损失使用SAM3掩码进行动态加权。
+  - **辅助损失1**：深度潜空间的均方误差（MSE）损失。
+  - **辅助损失2**：V-JEPA教师特征与学生特征的Gram矩阵L1距离损失。
+  - **蒸馏损失**：DMD的KL散度损失 + 对抗GAN损失。
+
+**3. 实验结果**
+- **实验设置**: 
+  - **数据集**：WorldArena 1.0 (Track 1) 和 WorldArena 2.0 (Track 1 & Track 2)，评估集基于RoboTwin 2.0轨迹。Track 1测视频预测，Track 2测用该世界模型训练出的策略在仿真器中的成功率（Adjust Bottle任务）。
+  - **对比对象**：Alpha-World, FlowWAM-FiveAges, GigaWorld-0, Vidar, WoW, Ctrl-World, IRASim, WOVR-PLUS, Lute, UNIS, SisyphusWorld, BWM-Fast 等。
+- **评价指标**: 
+  - **Track 1**：EWMScore-P（15个归一化子指标的平均分，涵盖视觉、动态、物理遵循、3D准确度、可控性等）。
+  - **Track 2**：策略在held-out episodes上的成功率（Success Rate）。
+- **主要结果**: 
+  - **WorldArena 2.0**（截至2026年8月12日快照）：Track 1 在31个提交中排名第一，EWMScore-P 达到 60.65；Track 2 排名第二（并列），Adjust Bottle 成功率达 67.19%。
+  - **WorldArena 1.0**（离线评估）：EWMScore-P 达到 76.88，比当时排行榜第一的 UNIS (73.64) 高出 3.24 分。
+
+---
+</script>
+            <script>
+                const rawMdElement = document.getElementById('raw-markdown');
+                if (rawMdElement) {
+                    document.getElementById('content').innerHTML = marked.parse(rawMdElement.textContent);
+                    // 渲染后触发公式排版
+                    if (window.MathJax && window.MathJax.typesetPromise) {
+                        window.MathJax.typesetPromise();
+                    }
+                }
+                function copySources() { /* 原代码保持不变 */ }
+            </script>
+        </body>
+        </html>
+        
