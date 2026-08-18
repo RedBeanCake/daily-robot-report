@@ -281,9 +281,21 @@ def _filter_chunk_with_retry(prompt, batch_no, chunk_size, attempts=3):
     return None
 
 
-def only_filter_and_report(papers):
+def only_filter_and_report(papers, date_info=None):
     """仅执行初筛，返回高分 ID 列表"""
-    if not papers: return "今日无新论文。"
+    actual_date = (date_info or {}).get("prefix", "未知")
+    total_entries = (date_info or {}).get("total", "未知")
+    run_time = (
+        datetime.datetime.now(datetime.timezone.utc)
+        + datetime.timedelta(hours=8)
+    ).strftime("%Y-%m-%d %H:%M:%S")
+    date_header = (
+        f"📅 **arXiv 实际抓取日期**: {actual_date}\n"
+        f"📊 **arXiv 当日论文总数**: {total_entries}\n"
+        f"⏱️ **任务运行时间（北京时间）**: {run_time}\n\n"
+    )
+    if not papers:
+        return date_header + "今日无新论文。"
 
     all_filtered_papers = []
     failed_batches = []
@@ -347,11 +359,13 @@ def only_filter_and_report(papers):
     # 过滤出 8 分以上的作为建议
     recommendations = [p for p in all_filtered_papers if p.get('score', 0) >= 8]
     if not recommendations:
+        no_result = date_header + "今日无高分精选论文。"
         if FILTER_WARNINGS:
-            return "今日无高分精选论文。\n\n" + "\n".join(FILTER_WARNINGS)
-        return "今日无高分精选论文。"
+            return no_result + "\n\n" + "\n".join(FILTER_WARNINGS)
+        return no_result
 
-    report = "📊 **今日具身智能论文初筛建议**\n"
+    report = date_header
+    report += "📊 **具身智能论文初筛建议**\n"
     report += "请复制 ID 到 GitHub 手动触发解析：\n\n"
     actions_url = f"https://github.com/{repo_owner}/{repo_name}/actions"
     report += f"👉 [点击去手动触发解析]({actions_url})\n\n"
@@ -629,5 +643,5 @@ if __name__ == "__main__":
             for p in ps: all_p[p['id']] = p
         
         # 仅初筛并汇报到飞书
-        report_list = only_filter_and_report(list(all_p.values()))
+        report_list = only_filter_and_report(list(all_p.values()), date_info=date_info)
         send_feishu_notification(report_list)
