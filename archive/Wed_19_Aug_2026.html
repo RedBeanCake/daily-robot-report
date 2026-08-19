@@ -1,0 +1,82 @@
+
+        <!DOCTYPE html>
+        <html lang="zh-CN">
+        <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>🤖 具身大模型简报 - Wed, 19 Aug 2026 (VLA: 1 of 43 entries)</title>
+            <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.2.0/github-markdown.min.css">
+            <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+            <script>
+                window.MathJax = {
+                    tex: { inlineMath: [['$', '$'], ['\\(', '\\)']], displayMath: [['$$', '$$'], ['\\[', '\\]']] },
+                    options: { skipHtmlTags: ['script', 'style', 'textarea'] }
+                };
+            </script>
+            <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+            <style>
+                .markdown-body { box-sizing: border-box; min-width: 200px; max-width: 980px; margin: 0 auto; padding: 45px; }
+                @media (max-width: 767px) { .markdown-body { padding: 15px; } }
+            </style>
+        </head>
+        <body class="markdown-body">
+            <a href='../index.html' style='margin-bottom:20px; display:block;'>← 返回主索引</a>
+            <h1>🤖 具身大模型简报 - Wed, 19 Aug 2026 (VLA: 1 of 43 entries)</h1>
+            <div id="content"></div>
+            
+            <script type="text/markdown" id="raw-markdown">### 1. 🔥 [Hydra-0: Action Flow for Generalist World Modeling and Control] (Hydra-0：用于通用世界建模与控制的动作流)
+- **研究机构**: `原文未提及`
+- **Arxiv ID**: `2608.18077` | [点击跳转](https://arxiv.org/abs/2608.18077)
+
+**0. 论文标题**
+- **英文标题**: Hydra-0: Action Flow for Generalist World Modeling and Control
+- **中文标题**: Hydra-0：用于通用世界建模与控制的动作流
+- **研究机构**: 原文未提及
+- **一句话总结**: 提出“动作流”（Action Flow）这一共享视觉接口，将机器人动作统一表示为图像平面的像素运动轨迹，实现了跨具身、跨任务的通用世界建模、开环策略评估与逆向控制。
+
+**1. 整体逻辑**
+- **研究任务**: 构建通用的机器人世界模型，用于前向动力学预测（视频生成）、开环策略评估以及逆向机器人控制。
+- **研究动机**: 现有的世界模型和动作条件视频模型通常依赖特定具身的原生动作空间（如关节角或末端位姿）。由于不同运动学结构的机器人对同一末端命令会产生不同的关节轨迹和视觉运动，这种具身绑定的表示方法导致模型难以跨具身迁移，也无法有效复用异构训练数据。
+- **本质改动**: 摒弃具身相关的原生动作命令，将机器人动作统一抽象为“动作流”（Action Flow），即在图像平面上表示的可见机器人或物体点的稀疏像素轨迹。以此作为连接异构数据、视频生成基座和机器人控制的通用视觉条件接口。
+- **技术溯源**: 基于视频生成基座模型（Cosmos 2.5、Wan2.2），借鉴了 ATI 和 Wan-Move 的基于轨迹的视觉条件注入机制，以及 LongLive-2.0 的自回归转换和 DMD2 蒸馏技术。
+
+**2. 技术拆解**
+- **核心方法**: 
+  1. **动作流构建**：部署时，通过物理仿真（Isaac Lab）执行候选命令，利用机器人几何和相机标定将可见表面点投影到图像平面（Geometry-aware）；训练时，对无元数据的视频使用跟踪器（AllTracker）和分割模型提取轨迹（Video-only）。
+  2. **视觉条件注入**：将轨迹位置与时间压缩的视频 latent 对齐，通过高斯权重传播首帧的 latent 特征，并计算一个存在性门控（presence gate），将其作为额外的视觉条件拼接至 DiT 输入。
+  3. **逆向控制（World Action Model）**：仅输入期望的物体动作流（任务意图），模型推断兼容的机器人运动，并通过轻量级的 MLP 头将 latent 特征直接解码为可执行动作，无需特定任务的专家机器人演示。
+- **关键细节**: 
+  - **输入输出**：输入为当前 RGB 帧和动作流（轨迹点坐标及可见性掩码），输出为未来 RGB 序列或可执行的机器人动作/状态。
+  - **模型结构**：基于 DiT 架构的视频生成模型（Cosmos 2.5 2B, Wan2.2 5B/14B），使用 LoRA 进行参数高效微调。逆向控制模式下增加轻量级的动作和状态预测头。
+  - **规模与超参**：训练数据涵盖 7 个异构数据集（约 2200 小时）；高斯局部性参数 $\beta=220$；推理时采用 4 步去噪。
+- **训练/优化目标**: 
+  - **前向世界模型**：标准的 Flow-matching 目标（最小化预测速度场与真实速度场的 L2 距离）。
+  - **逆向世界动作模型**：Flow-matching loss + 动作/状态预测的 Masked Huber loss + 动作速度平滑的 Masked L1 loss。
+
+**3. 实验结果**
+- **实验设置**: 
+  - **数据集**：多具身训练语料（DROID, ABC-130k, MolmoAct2, EgoDex, Deform360 等）；评估集包括 XVLA-Soft-Fold, Deform360, DROID, MolmoAct2, ABC-130k，以及用于数据效率评估的 IWS 和用于策略评估的 RoboLab。
+  - **对比对象（Baseline）**：使用原生 6D 末端动作条件的 Cosmos 2.5，以及零样本基线 ATI 和 Wan-Move。
+- **评价指标**: 图像保真度（PSNR, SSIM, LPIPS），运动误差（Object/Gripper EPE，像素级），分布质量（FID, FVD），VLM 打分（Gemma 4 31B），策略评估相关性（Pearson/Spearman correlation）。
+- **主要结果**: 
+  - **预测精度**：最佳配置（Wan2.2 A14B 4-step）相比原生动作条件的 Cosmos 2.5 baseline，机器人运动误差（Gripper EPE）降低 90.4%，物体运动误差（Object EPE）降低 60.2%。
+  - **策略评估**：在 RoboLab 基准上，开环回放的成功率与真实参考成功率的 Pearson 相关系数达到 r = 0.96。
+  - **推理速度**：结合自回归转换与 4 步蒸馏，生成速度达 62.0 FPS，相比双向教师模型加速 16.0 倍。
+  - **数据效率**：多具身中间训练（mid-training）使模型在 0% 目标任务数据下具备强零样本迁移能力，且仅需 20% 的任务数据即可达到接近 100% 数据的性能 plateau，大幅降低了对目标任务数据的依赖。
+
+---
+</script>
+            <script>
+                const rawMdElement = document.getElementById('raw-markdown');
+                if (rawMdElement) {
+                    document.getElementById('content').innerHTML = marked.parse(rawMdElement.textContent);
+                    // 渲染后触发公式排版
+                    if (window.MathJax && window.MathJax.typesetPromise) {
+                        window.MathJax.typesetPromise();
+                    }
+                }
+                function copySources() { /* 原代码保持不变 */ }
+            </script>
+        </body>
+        </html>
+        
