@@ -1,0 +1,176 @@
+
+        <!DOCTYPE html>
+        <html lang="zh-CN">
+        <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>🤖 具身大模型简报 - Thu, 20 Aug 2026 (VLA: 3 of 38 entries)</title>
+            <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.2.0/github-markdown.min.css">
+            <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+            <script>
+                window.MathJax = {
+                    tex: { inlineMath: [['$', '$'], ['\\(', '\\)']], displayMath: [['$$', '$$'], ['\\[', '\\]']] },
+                    options: { skipHtmlTags: ['script', 'style', 'textarea'] }
+                };
+            </script>
+            <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+            <style>
+                .markdown-body { box-sizing: border-box; min-width: 200px; max-width: 980px; margin: 0 auto; padding: 45px; }
+                @media (max-width: 767px) { .markdown-body { padding: 15px; } }
+            </style>
+        </head>
+        <body class="markdown-body">
+            <a href='../index.html' style='margin-bottom:20px; display:block;'>← 返回主索引</a>
+            <h1>🤖 具身大模型简报 - Thu, 20 Aug 2026 (VLA: 3 of 38 entries)</h1>
+            <div id="content"></div>
+            
+            <script type="text/markdown" id="raw-markdown">### 1. 🔥 [DA-WAM: Decision-Aligned Future Latents for Driving World Models] (DA-WAM：用于驾驶世界模型的决策对齐未来隐状态)
+- **研究机构**: `原文未提及`
+- **Arxiv ID**: `2608.19085` | [点击跳转](https://arxiv.org/abs/2608.19085)
+
+**0. 论文标题**
+- **英文标题**: DA-WAM: Decision-Aligned Future Latents for Driving World Models
+- **中文标题**: DA-WAM：用于驾驶世界模型的决策对齐未来隐状态
+- **研究机构**: 原文未提及
+- **一句话总结**: 提出DA-WAM框架，通过为每条候选轨迹预测独立的未来隐状态并用于打分，解决了现有世界模型中未来预测与轨迹规划解耦或共享未来状态导致决策信息被稀释的问题。
+
+**1. 整体逻辑**
+- **研究任务**: 自动驾驶中的基于候选轨迹的规划（Candidate-based trajectory planning），利用世界模型预测未来场景演变并评估轨迹。
+- **研究动机**: 现有方法要么将未来表示学习与规划优化分阶段解耦（导致编码器冻结，无法适应规划需求），要么在多条候选轨迹间共享同一个预测的未来状态。这会造成“预测-动作不匹配”（prediction-action mismatch），使得打分器只能依赖当前几何特征，无法利用特定动作带来的安全后果来区分几何相似但安全性不同的轨迹。
+- **本质改动**: 建立候选轨迹与预测未来隐状态的独立对应关系（每条轨迹有专属的未来预测），并在规划优化过程中通过在线编码器和动量目标编码器维持JEPA预测监督，使未来表示与驾驶决策任务共同进化。
+- **技术溯源**: V-JEPA 2.1 (Video Joint Embedding Predictive Architecture), LoRA, EMA (Exponential Moving Average), NAVSIM 评测框架。
+
+**2. 技术拆解**
+- **核心方法**: 
+  1. 动作条件未来预测：为每条候选轨迹生成独立的未来隐状态，而非共享全局未来。
+  2. 预测表示自适应：在规划训练期间保持JEPA预测监督，使隐空间适应驾驶目标。
+  3. 决策对齐打分：打分器显式地以每条轨迹对应的预测未来隐状态为条件进行评估。
+- **关键细节**: 
+  - **输入输出**：输入为2帧前视相机历史图像，输出为32条候选轨迹（每条8个未来自车位姿）的效用得分。
+  - **模型结构**：
+    - **在线编码器**：基于V-JEPA 2.1骨干网络并注入LoRA，提取当前场景隐状态token。
+    - **动作条件预测器**：共享Transformer结构，将轨迹动作表示作为Query，当前场景token作为Key/Value，预测每条轨迹专属的未来隐状态（预测未来0.5秒）。
+    - **打分器**：交叉注意力融合(当前场景, 动作, 预测未来)三元组，通过分解的规划头输出5个规划因子（无责碰撞NC、可行驶区域合规DAC、自车进度EP、碰撞时间TTC、舒适度Comfort）和总效用分。
+  - **规模与超参**：8张GPU，batch size 8，训练20个epoch。
+- **训练/优化目标**: 
+  - **预测特征对齐损失**：仅针对与专家轨迹匹配的候选者计算（因离线日志只有专家轨迹的真实未来），使用特征回归损失。
+  - **规划因子损失**：使用MSE或BCE监督5个规划因子。
+  - **效用回归损失**：监督总效用分。
+  - **成对排序损失**：基于真实效用构建偏好对，使用交叉熵优化相对排名，并对安全关键的困难负样本（hard negatives）加权。
+
+**3. 实验结果**
+- **实验设置**: 
+  - **数据集**：NAVSIM-v1 navtest split (12,146个场景) 和 NAVSIM-v2 navtest。
+  - **对比对象（baseline）**：NAVSIM榜单上的主流方法，包括 PDM-Closed, UniVLA, DrivingGPT, UniAD, DriveX-S, World4Drive, VAD-v2, PRIX, DiffusionDrive, DIVER, AutoVLA, DriveVLA-W0, ReCogDrive, Hydra-MDP++, DiffusionDriveV2, iPad, SparseDriveV2, Centaur, DrivoR, DriveSuprim, TransFuser, ARTEMIS 等。
+- **评价指标**: 
+  - **NAVSIM-v1**：PDMS（预测驾驶员模型总分）及其子项 NC, DAC, EP, TTC, Comfort。
+  - **NAVSIM-v2**：EPDMS（扩展预测驾驶员模型总分）及其子项（包含 DDC, TL, LK, HC, EC 等）。
+- **主要结果**: 
+  - 在 NAVSIM-v1 上，PDMS 达到 93.7（SOTA），其中 NC 99.1，DAC 98.9，EP 90.0，优于 DrivoR (93.1) 和 DriveSuprim (93.5) 等方法。
+  - 在 NAVSIM-v2 上，EPDMS 达到 87.7（SOTA），其中 TTC 97.9，LK 97.6，比最强对比方法高 0.2 分。
+  - 消融实验验证：动作条件未来预测（93.46）显著优于无预测（93.31）、共享全局未来（92.81）和当前隐状态条件（93.25）；引入安全困难负样本后 PDMS 进一步提升至 93.68；在线编码器采用 LoRA + 密集预测损失 + EMA 目标编码器的组合效果最优（93.68）。
+
+---
+
+
+### 2. 🔥 [RoboEdit: Turning Human Manipulation Videos into Scalable Robot Experience] (RoboEdit：将人类操作视频转化为可扩展的机器人经验)
+- **研究机构**: `原文未提及`
+- **Arxiv ID**: `2608.18948` | [点击跳转](https://arxiv.org/abs/2608.18948)
+
+**0. 论文标题**
+- **英文标题**: RoboEdit: Turning Human Manipulation Videos into Scalable Robot Experience
+- **中文标题**: RoboEdit：将人类操作视频转化为可扩展的机器人经验
+- **研究机构**: 原文未提及
+- **一句话总结**: 提出了一套端到端的人-机器人视频编辑套件，将海量人类操作视频直接转化为物理合理的机器人交互视频并恢复3D手部状态，构建了千万帧级数据集以支持机器人学习。
+
+**1. 整体逻辑**
+- **研究任务**: 将丰富的人类手-物操作视频转化为特定目标机器人的交互视频，并恢复对应的3D机器人手部状态，为机器人学习提供视觉与运动学双重监督。
+- **研究动机**: 机器人交互数据收集成本高且受限于特定具身形态（embodiment-specific）；人类视频虽多但存在具身不匹配。现有方法要么只能提取稀疏动作表征，要么直接从头生成机器人视频会破坏原场景上下文，或产生物理上不合理的运动（如穿模、悬浮）。
+- **本质改动**: 不做从头生成，而是直接在人类RGB视频上进行“视频编辑”替换具身以保留原场景和物理动态，同时引入3D状态解码器从编辑后的视频中恢复结构化的3D运动轨迹，实现视觉与物理运动的双重监督。
+- **技术溯源**: 视频编辑基座 NovaEdit (基于 Wan2.1-VACE-1.3B)；3D重建与追踪 HaMeR, SAM 2, TRELLIS, FoundationPose, VGGT；物理仿真与优化 MuJoCo, SPIDER；图像修复 MiniMax-Remover。
+
+**2. 技术拆解**
+- **核心方法**: 包含三个核心组件：1) **RoboEdit-ADC**：自动数据构建流水线，通过3D重建、深度正则化、物理引导优化和图像合成，生成对齐的人-机器人视频对；2) **RoboEdit-Trans**：跨具身视频编辑模型，利用适配器适应不同机器人外观与运动，并解码3D手部状态；3) **RoboEdit-14M**：基于上述流水线构建的大规模配对数据集。
+- **关键细节**: 
+  - **输入输出**：输入带掩码的人类视频和稀疏目标机器人关键帧；输出目标机器人交互视频和每帧3D手部状态。
+  - **物理优化**：在运动学重定向（IK）后，通过包含跟踪、几何（防MuJoCo和视觉网格穿透）、接触保持和时间平滑的损失函数进行物理引导优化，消除穿模和悬浮。
+  - **模型结构**：RoboEdit-Trans 引入 LoRA 和残差瓶颈适配器处理跨具身差异；3D Robot-State Decoder 采用共享 ResNet-34 提取特征，通过预测2D锚点和关键点结合 PnP 恢复3D位姿，再用时序 Transformer 平滑轨迹。
+  - **数据规模**：RoboEdit-14M 包含 17.4万 个对齐视频对，超 1410万 帧，涵盖 7 种机器人具身（含真实与合成场景）。
+- **训练/优化目标**: 
+  - **视频编辑**：基于 Flow Matching 优化机器人条件编辑器。
+  - **物理重定向**：最小化 $\mathcal{L}_{ret}$（包含跟踪、几何防穿透、接触保持、时间平滑四项损失）。
+  - **3D Decoder**：联合优化锚点热力图/坐标/可见性损失、空间2D/3D/关节状态损失，以及时序运动与残差损失。
+
+**3. 实验结果**
+- **实验设置**: 
+  - **数据集与Baseline**：使用自建的 RoboEdit-14M 及 300-case 评测基准。对比了 VACE, UniVideo, VINO, Kiwi-Edit, OmniWeaving, EditCtrl, AnyV2V, ReCo 等视频编辑模型。
+  - **下游任务**：在 Genesis 仿真器和真机 Franka Panda 上进行 YCB 物体操作。
+- **评价指标**: SSIM, LPIPS (评估重建、局部编辑和背景), VBench (视觉质量/动态/平滑度), OpenVE-Bench (局部替换协议)。下游任务评估轨迹复现成功率。
+- **主要结果**: 
+  - **视频编辑**：RoboEdit-Trans (1.3B) 在重建保真度 (SSIM 0.9282) 和局部编辑精度 (Edit LPIPS 0.0171) 上达到 SOTA，显著优于参数量高达 14B 的 UniVideo 和 13B 的 VINO 等 baseline。
+  - **消融实验**：验证了 LoRA 与残差适配器的组合收益最大；深度正则化和物理优化对消除单目重建带来的穿模和悬浮现象起决定性作用。
+  - **下游控制**：仿真中 Panda 夹爪和 XHand 的轨迹复现成功率分别达到 71% 和 62%；真机部署成功完成 YCB 物体操作任务，证明恢复的 3D 状态具备实际物理可执行性。
+
+---
+
+
+### 3. 🔥 [GigaBrain-WBC-0.5: A Behavior World Model for Robust Whole-Body Control with Environment Interaction] (GigaBrain-WBC-0.5：一种用于环境交互下鲁棒全身控制的行为世界模型)
+- **研究机构**: `原文未提及`
+- **Arxiv ID**: `2608.18234` | [点击跳转](https://arxiv.org/abs/2608.18234)
+
+**0. 论文标题**
+- **英文标题**: GigaBrain-WBC-0.5: A Behavior World Model for Robust Whole-Body Control with Environment Interaction
+- **中文标题**: GigaBrain-WBC-0.5：一种用于环境交互下鲁棒全身控制的行为世界模型
+- **研究机构**: 原文未提及
+- **一句话总结**: 提出首个用于人形机器人全身控制的行为世界模型，通过联合预测动作、状态和命令分布，结合自动3D地形标注和在线指令过滤，在复杂地形交互、异常指令和跌倒恢复中实现了极强的鲁棒性。
+
+**1. 整体逻辑**
+- **研究任务**: 人形机器人的全身运动跟踪与鲁棒控制，使机器人能根据粗粒度指令在复杂环境中保持平衡、与地形/物体交互，并妥善处理异常指令和跌倒。
+- **研究动机**: 现有的全身跟踪器都在平地训练，没学过环境接触带来的动力学变化；一旦离开平地，可行的动作集就依赖环境，单纯扩充动作库的方法就失效了。此外，现有方法遇到不合理指令或跌倒时，往往直接宕机或需要切换到专门的恢复控制器，从而打断任务。
+- **本质改动**: 把控制器从“单纯模仿动作的反应式跟踪器”改成“行为世界模型”。让网络在输出动作的同时，预测下一时刻的本体状态和潜在行为命令的分布。这样网络就能内化环境接触动力学，并知道当前环境下“哪些动作是可行的”。
+- **技术溯源**: 基于因果Transformer、PPO强化学习算法；仿真训练使用Isaac Lab，评估使用MuJoCo；数据基于Bones-Seed、MotionMillion、MotionDecode等大规模动捕数据集。
+
+**2. 技术拆解**
+- **核心方法**: 
+  1. **行为世界模型架构**：用因果Transformer同时输出动作、下一状态预测、以及下一潜在命令的高斯混合模型（GMM）分布。
+  2. **自动空间地形标注**：从普通动捕数据中，通过运动学回放、接触检测和点云聚类，自动反推并重建出真实的3D接触几何（如椅子、台阶），而不是简单的2.5D高程图。
+  3. **在线OOD指令过滤**：利用模型预测的GMM分布，在部署时计算马氏距离，在线识别不合理指令，并将其径向投影到最近的安全行为边界上，实现“尽力而为”的连续控制。
+- **关键细节**: 
+  - 控制Unitree G1人形机器人（29个自由度，50Hz）。
+  - **输入**：67维本体感知、29维上一动作、10帧参考窗口（经MLP编码为64维潜在命令）。
+  - **模型**：6层因果Transformer，4个注意力头，RoPE位置编码，32帧局部注意力窗口（带KV cache）。
+  - **输出**：29维动作、67维下一状态、516维GMM参数（4个对角高斯分量）。
+  - **数据**：从三大动捕库中提取了约72小时的地形交互数据，与平地数据混合训练。
+- **训练/优化目标**: 
+  - **损失函数**：PPO损失 + 动作重建/循环一致性损失 + 下一状态预测MSE损失 + 下一命令分布的对数似然损失。
+  - **奖励设计**：基于高斯核的跟踪奖励（根部/身体/末端的位置、姿态、速度误差），加上动作平滑、关节限制、非期望接触等惩罚。引入跌倒初始状态课程学习和随机外力扰动。
+
+**3. 实验结果**
+- **实验设置**: 
+  - **测试集**：AMASS测试集（平地Standard）、MotionMillion子集（物理不合理的OOD指令）、Bones-Seed子集（地形交互Terrain）、AMASS测试集（跌倒初始状态Fall）。
+  - **Baseline**：SONIC、HoloMotion-1、Humanoid-GPT（三个主流大规模全身跟踪器）。
+  - **硬件**：Unitree G1 和 Maker L01。
+- **评价指标**: MPKPE（平均关键点位置误差）、RootPos/Vel（根部位置/速度误差）、SR（成功率）、Jerk（关节加加速度，评估恢复平滑度）。
+- **主要结果**: 
+  - **平地跟踪**：MPKPE 76.6mm，SR 96.3%，全面优于baseline。
+  - **地形交互**：SR 81.3%（最强baseline的4.3倍），MPKPE 93.3mm，baseline在此场景下几乎全部崩溃。
+  - **异常指令（OOD）**：SR 83.1%（baseline为50%-70%），证明过滤机制有效。
+  - **跌倒恢复**：SR 99.3%（baseline不到6%），且Jerk最小（1050.6 rad/s³），恢复动作最平滑。
+  - **硬件表现**：在真实环境中成功实现上下台阶、坐椅子、搬运重物及抗扰动；G1的模型微调后可直接迁移到Maker L01机器人。
+
+---
+</script>
+            <script>
+                const rawMdElement = document.getElementById('raw-markdown');
+                if (rawMdElement) {
+                    document.getElementById('content').innerHTML = marked.parse(rawMdElement.textContent);
+                    // 渲染后触发公式排版
+                    if (window.MathJax && window.MathJax.typesetPromise) {
+                        window.MathJax.typesetPromise();
+                    }
+                }
+                function copySources() { /* 原代码保持不变 */ }
+            </script>
+        </body>
+        </html>
+        
