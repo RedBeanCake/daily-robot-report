@@ -1,0 +1,155 @@
+
+        <!DOCTYPE html>
+        <html lang="zh-CN">
+        <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>🤖 具身大模型简报 - Fri, 21 Aug 2026 (VLA: 3 of 37 entries)</title>
+            <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.2.0/github-markdown.min.css">
+            <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+            <script>
+                window.MathJax = {
+                    tex: { inlineMath: [['$', '$'], ['\\(', '\\)']], displayMath: [['$$', '$$'], ['\\[', '\\]']] },
+                    options: { skipHtmlTags: ['script', 'style', 'textarea'] }
+                };
+            </script>
+            <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+            <style>
+                .markdown-body { box-sizing: border-box; min-width: 200px; max-width: 980px; margin: 0 auto; padding: 45px; }
+                @media (max-width: 767px) { .markdown-body { padding: 15px; } }
+            </style>
+        </head>
+        <body class="markdown-body">
+            <a href='../index.html' style='margin-bottom:20px; display:block;'>← 返回主索引</a>
+            <h1>🤖 具身大模型简报 - Fri, 21 Aug 2026 (VLA: 3 of 37 entries)</h1>
+            <div id="content"></div>
+            
+            <script type="text/markdown" id="raw-markdown">### 1. 🔥 [HiTac-WAM: A Hierarchical Tactile World Action Model for Contact-Rich Robot Manipulation] (HiTac-WAM：一种用于接触丰富机器人操作的分层触觉世界动作模型)
+- **研究机构**: `原文未提及`
+- **Arxiv ID**: `2608.19574` | [点击跳转](https://arxiv.org/abs/2608.19574)
+
+**0. 论文标题**
+- **英文标题**: HiTac-WAM: A Hierarchical Tactile World Action Model for Contact-Rich Robot Manipulation
+- **中文标题**: HiTac-WAM：一种用于接触丰富机器人操作的分层触觉世界动作模型
+- **研究机构**: 原文未提及
+- **一句话总结**: 提出了一种分层触觉世界动作模型，通过显式建模接触、形变和滑动的物理因果依赖来预测未来触觉状态，从而在接触丰富的机器人操作任务中实现更优的动作选择与在线纠偏。
+
+**1. 整体逻辑**
+- **研究任务**: 接触丰富的机器人操作（contact-rich robot manipulation）中的动作规划与执行控制。具体而言，是在执行前预测候选动作块的未来触觉后果以选择最优动作，并在执行中通过对比预测与实际触觉状态进行在线验证和纠偏。
+- **研究动机**: 现有的视觉世界模型在接触丰富的任务中存在盲区，末端接触、压力分布和早期滑动等物理状态在RGB图像中特征微弱或被遮挡，导致视觉上看似合理的动作在物理上容易失败（如未接触、压力不足、滑动或卡死）。此外，现有的触觉预测方法要么把接触、形变、滑动混在一个特征流里，要么当成独立目标并行预测，没有利用它们之间“先有接触，再有形变，最后可能导致滑动”的物理因果依赖。
+- **本质改动**: 把触觉预测从“扁平多任务”改成了符合物理规律的“层级结构（Directed Hierarchy）”，用 stop-gradient 强制上游（接触）指导下游（形变、滑动）；同时把预测出的触觉轨迹和候选动作绑定，用于动作排序，并在执行期保留预测作为 reference 进行异常检测。
+- **技术溯源**: 基于预训练的世界动作模型（World Action Model）和预训练的触觉编码器（FG-CLTP）。
+
+**2. 技术拆解**
+- **核心方法**: 
+  1. **分层触觉预测**：将触觉预测拆分为接触状态（Contact）、接触条件下的3D形变（3D Deformation）和滑动风险（Slip Risk）三个预测头。上游输出通过 stop-gradient 作为下游的条件输入，且预测的接触状态会作为门控信号（elementwise multiplication）作用于形变和滑动的最终输出。
+  2. **定向注意力掩码（Directed Attention Mask）**：在Transformer架构中，允许触觉 query attend 视觉和动作上下文，但禁止视觉和动作 query attend 触觉 token，防止未来触觉信息泄露给视觉和动作的生成。
+  3. **基于预测的动作选择与在线验证**：用预测的接触、形变、滑动风险结合视觉任务进度给候选动作打分排序；执行时保留选中动作的触觉预测作为参考，如果实际观测和预测的偏差持续超过阈值，则触发安全回退和重新规划。
+- **关键细节**: 
+  - **输入输出**：输入为同步的RGB视频、机器人状态、双边触觉历史、语言指令，以及候选动作块（如24步）；输出为未来对应步数的双边接触状态（标量）、3D形变增量（网格点位移）和滑动风险（标量）。
+  - **模型结构**：共享骨干网络 + 定向注意力掩码的 Transformer + 三个确定性的预测头。
+  - **物理门控**：形变和滑动的预测只有在接触发生时才有物理意义，因此用接触概率对输出进行门控。
+- **训练/优化目标**: 联合损失函数 $\mathcal{L} = \mathcal{L}_C + \mathcal{L}_D + \beta \mathcal{L}_R$。
+  - 接触损失 $\mathcal{L}_C$：BCE + 接触开始/结束的时序约束损失。
+  - 形变损失 $\mathcal{L}_D$：接触掩码下的 Huber loss（只计算有真实接触的部分，避免无接触时的噪声干扰）。
+  - 滑动损失 $\mathcal{L}_R$：类别加权的 BCE（因为滑动样本极度不平衡，占比仅1.39%）。采用延迟训练策略，前3000步滑动损失系数为0，之后设为0.01。
+
+**3. 实验结果**
+- **实验设置**: 
+  - **硬件与数据**：使用 IMETA-Y1 机器人，配备 DM-Tac W2 双边触觉传感器和 3 个同步 RGB 相机。原文未提及公开数据集名称，使用作者自建采集数据（每个任务200个完整 episode，按 160/20/20 划分训练/验证/测试集，30Hz 同步）。
+  - **测试任务**：芯片抓取（Chip grasping）、黑板擦除（Blackboard erasing）、USB插入（USB insertion）。
+  - **Baseline**：DreamZero（无触觉通道的纯视觉世界模型）、Reactive Tactile（仅用当前触觉反馈无预测）、Task-progress ranking（仅用视觉任务进度排序）、Selection（仅用触觉预测排序，无在线验证）。
+- **评价指标**: 
+  - **预测指标**：接触 F1、接触开始/结束 MAE（帧）、3D位移 L2 误差（mm）、Top-20 Z MAE（mm）、滑动 AUPRC。
+  - **系统指标**：真实机器人任务成功率（%）。
+- **主要结果**: 
+  - **预测性能**：平均接触 F1 达到 0.921；3D位移 L2 误差为 0.058 mm；滑动 AUPRC 为 0.247（远高于 0.0139 的随机基线）。
+  - **消融实验（层级结构的作用）**：相比单任务/独立头预测，分层结构使 3D位移 L2 误差降低了 17.6%，滑动 AUPRC 提升了 60.4%，证明了显式建模物理依赖的有效性。
+  - **系统成功率**：在三个任务上，仅用触觉预测排序（Selection）将平均成功率从 DreamZero 的 31.1% 提升至 61.1%（同等采样预算下，远超仅用视觉进度排序的 35.6%）；加入在线验证纠偏后（Full HiTac-WAM），平均成功率进一步提升至 72.2%。
+
+---
+
+
+### 2. 🔥 [Fine-Tuning VLAs with Self-Demonstrated Generative Control for Multi-Task Manipulation] (基于自演示生成控制的视觉-语言-动作模型微调以实现多任务操作)
+- **研究机构**: `原文未提及（致谢中提及 UIUC）`
+- **Arxiv ID**: `2608.19490` | [点击跳转](https://arxiv.org/abs/2608.19490)
+
+**0. 论文标题**
+- **英文标题**: Fine-Tuning VLAs with Self-Demonstrated Generative Control for Multi-Task Manipulation
+- **中文标题**: 基于自演示生成控制的视觉-语言-动作模型微调以实现多任务操作
+- **研究机构**: 原文未提及（致谢中提及 UIUC）
+- **一句话总结**: 本文属于具身智能领域的方法创新工作。提出一种自监督微调方法，通过收集基座VLA模型在目标机器人上的在线交互轨迹作为“自演示”数据，在仅使用少量新任务专家数据的情况下，既学会了新技能，又保留了原有的指令遵循能力和预训练行为先验，有效避免了灾难性遗忘。
+
+**1. 整体逻辑**
+- **研究任务**: 将预训练的视觉-语言-动作（VLA）模型适配到新的机器人硬件平台上，使其在学习新任务的同时，保留原有的语义理解、指令遵循能力和预训练行为先验。
+- **研究动机**: 预训练VLA模型（如 $\pi_{0.5}$）在部署到新机器人时，由于相机、夹爪等硬件差异会导致零样本抓取失败。若仅使用新任务的专家数据微调，虽能恢复底层控制，但会引发灾难性遗忘，导致模型丧失原有的指令遵循能力（如只会抓取不会放置，或忽略文本指令产生视觉捷径学习）。
+- **本质改动**: 不依赖原始预训练数据，而是直接利用冻结的基座VLA模型在目标机器人上进行在线交互（rollout），生成带有目标硬件特性的“自演示（self-demonstrations）”轨迹，将其与少量新任务专家数据混合进行联合微调（一种无需原始数据的自监督经验回放机制）。
+- **技术溯源**: 基于 $\pi_{0.5}$ VLA模型（包含 SigLIP 视觉编码器、PaliGemma VLM骨干和动作专家），使用 FAST token 和条件流匹配（Conditional Flow Matching）。
+
+**2. 技术拆解**
+- **核心方法**: 自监督模仿学习。在目标机器人上，使用冻结的基座模型在预训练任务分布内的指令下进行在线推理，记录观察和动作作为自演示数据。然后将这些自演示数据与新任务的专家数据进行混合训练。
+- **关键细节**: 
+  - 输入输出：输入为多模态观察（3个相机图像、文本指令、机器人本体状态），输出为连续动作块（Action chunks，$H=50, D=32$）。
+  - 模型结构：SigLIP 视觉编码器 + PaliGemma VLM 骨干 + 动作专家（Action Expert）。
+  - 数据与超参：专家数据（ES）与自演示数据（SS）按 1:1 比例混合，任务级均匀采样。自演示数据每个任务收集 10-15 个 episode（包含失败轨迹，无需人工过滤）。损失函数中离散与连续目标的平衡系数 $\alpha$ 设为 8.0 或 10.0。
+- **训练/优化目标**: 联合优化目标。包含两部分损失：1) 离散 FAST 动作 token 的交叉熵损失（Cross-entropy loss）；2) 连续动作的条件流匹配损失（Conditional flow matching loss，预测流速度向量）。总损失为专家数据损失与自演示数据损失的加权和。
+
+**3. 实验结果**
+- **实验设置**: 
+  - 数据集与对比对象：真实环境使用 ALOHA 双臂机器人（测试抓取、放置、衣物收纳、齿轮插入等任务）；仿真环境使用 RoboTwin（ALOHA-Agilex 具身，测试10个预训练任务和2个新堆叠任务）。Baseline 包括 $\pi_{0.5}$ Zero-Shot、Multi-Task ES（仅专家数据多任务微调）、Rehearsal Oracle（需要访问原始预训练数据的回放方法）以及 LoRA 等参数高效微调方法。
+  - 评价指标：成功率（Success Rate, SR，衡量是否完成交互和任务）和指令遵循（Instruction Following, IF，衡量是否接近/抓取/放置了指定对象，分抓取前和抓取后）。
+- **主要结果**: 
+  - 真实机器人：仅用14分钟专家数据，结合自演示微调，在专家任务（抓取方块）上 SR 达到 90%；在预训练任务（抓取放置）上，从纯专家微调的 0% 恢复至 55% SR；在未见过的“推”任务上保留了 60% 的 SR（纯专家微调仅 5%）。
+  - 仿真环境：纯专家微调导致预训练任务 SR 从 90.8% 暴跌至 16.6%（灾难性遗忘），加入自演示后恢复至 70.6%，且新任务 SR 从 93% 提升至 98%。性能接近假设能访问原始预训练数据的 Oracle 上限（85.6%），且无需存储原始数据。
+
+---
+
+
+### 3. 🔥 [DECOWAM: Decoupled Whole-Body World-Action Model for Legged Mobile Manipulation] (DECOWAM：用于四足移动机械臂的解耦全身世界-动作模型)
+- **研究机构**: `原文未提及`
+- **Arxiv ID**: `2608.20114` | [点击跳转](https://arxiv.org/abs/2608.20114)
+
+**0. 论文标题**
+- **英文标题**: DECOWAM: Decoupled Whole-Body World-Action Model for Legged Mobile Manipulation
+- **中文标题**: DECOWAM：用于四足移动机械臂的解耦全身世界-动作模型
+- **研究机构**: 原文未提及
+- **一句话总结**: 提出了一种解耦的全身世界-动作模型，通过显式分离基座运动、机械臂操作和相机自我运动，在参数高效微调下实现了四足移动机械臂的联合视觉预测与全身控制。
+
+**1. 整体逻辑**
+- **研究任务**: 四足移动机械臂的全身世界-动作建模（同时预测未来视频帧和全身动作序列）。
+- **研究动机**: 现有的世界-动作模型（WAM）或视觉-语言-动作（VLA）模型大多针对固定基座，没有显式区分相机自我运动（ego-motion）与基座/机械臂动作。在四足平台上，相机随底盘移动导致图像混合了场景动态和自我运动；且动作空间包含高频的机械臂关节和低频的基座速度，单一隐变量难以同时表示导航级和操控级意图。
+- **本质改动**: 将移动机械臂的建模问题解耦为基座控制、机械臂操作和相机自我运动三个显式因子，并在冻结的视频-动作大模型基座上，通过残差适配、未来信息蒸馏和对抗解耦进行参数高效微调。
+- **技术溯源**: 基于 FastWAM（底层是 Wan-2.2 视频扩散骨干和 ActionDiT 动作分支），采用条件流匹配（Conditional Flow Matching）作为训练范式。
+
+**2. 技术拆解**
+- **核心方法**: 
+  1. **分阶段参数高效适配**：Stage 1 全参数微调对齐数据，Stage 2 冻结主干，只训练残差适配器等轻量模块。
+  2. **动作等效未来瓶颈**：利用特权未来帧信息蒸馏出一个因果学生网络，为动作预测提供未来场景演化的先验。
+  3. **基座-机械臂解耦**：使用梯度反转层（GRL）将动作上下文分离为基座和机械臂两个隐变量，强制它们只保留各自的控制因子，消除特征耦合。
+  4. **自我运动感知视频条件化**：将当前归一化的基座速度作为显式条件注入视频分支，直接解释相机运动，而不是让模型仅从像素中推断。
+- **关键细节**: 输入为当前 RGB 帧、14维本体状态（含臂、夹爪、基座速度等）和语言指令；输出为 8 帧未来 RGB 视频（384x320）和 48 步 14 维动作序列。模型总参数约 67.5 亿，Stage 2 可训练参数仅 2595 万。
+- **训练/优化目标**: 基于条件流匹配（Conditional Flow Matching）。总损失包含视频和动作的流匹配损失、未来瓶颈的蒸馏与几何保持损失、以及基座/臂解耦的对抗损失（通过 GRL 实现）。
+
+**3. 实验结果**
+- **实验设置**: 使用自建的 ARMDOG 数据集（四足+6DoF机械臂，1487个 episode，15Hz）。开环 Replay 对比了 FastWAM、Motus、Cosmos、X-WAM、UVA 等 WAM，以及 $\pi_{0.5}$、X-VLA、GR00T 等 VLA。真机测试每种方法跑 79 次闭环试验。
+- **评价指标**: 开环看视频质量（Frame MSE, PSNR, SSIM, LPIPS）和动作误差（Action MSE, MAE, L2）；真机看任务成功率、各阶段累积完成率、平均完成时间、全身协调率和基座鲁棒性。
+- **主要结果**: 
+  - **开环 Replay**：相比基线 FastWAM，DECOWAM 的 Frame MSE 降低 15.03%，Action MSE 降低 21.71%，在所有 WAM 对比中指标排名第一。
+  - **真机部署**：任务成功率 58.2%（与 FastWAM 相当，远超 X-WAM 的 15.2%），平均完成时间 49s（最快）。在全身协调率（44.3%）和基座位移鲁棒性（30.4%）上显著领先所有 baseline，证明了其在底盘移动时保持手眼协调和抗干扰的能力。
+
+---
+</script>
+            <script>
+                const rawMdElement = document.getElementById('raw-markdown');
+                if (rawMdElement) {
+                    document.getElementById('content').innerHTML = marked.parse(rawMdElement.textContent);
+                    // 渲染后触发公式排版
+                    if (window.MathJax && window.MathJax.typesetPromise) {
+                        window.MathJax.typesetPromise();
+                    }
+                }
+                function copySources() { /* 原代码保持不变 */ }
+            </script>
+        </body>
+        </html>
+        
