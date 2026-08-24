@@ -1,0 +1,329 @@
+
+        <!DOCTYPE html>
+        <html lang="zh-CN">
+        <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>🤖 具身大模型简报 - Mon, 24 Aug 2026 (VLA: 7 of 37 entries)</title>
+            <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.2.0/github-markdown.min.css">
+            <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+            <script>
+                window.MathJax = {
+                    tex: { inlineMath: [['$', '$'], ['\\(', '\\)']], displayMath: [['$$', '$$'], ['\\[', '\\]']] },
+                    options: { skipHtmlTags: ['script', 'style', 'textarea'] }
+                };
+            </script>
+            <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+            <style>
+                .markdown-body { box-sizing: border-box; min-width: 200px; max-width: 980px; margin: 0 auto; padding: 45px; }
+                @media (max-width: 767px) { .markdown-body { padding: 15px; } }
+            </style>
+        </head>
+        <body class="markdown-body">
+            <a href='../index.html' style='margin-bottom:20px; display:block;'>← 返回主索引</a>
+            <h1>🤖 具身大模型简报 - Mon, 24 Aug 2026 (VLA: 7 of 37 entries)</h1>
+            <div id="content"></div>
+            
+            <script type="text/markdown" id="raw-markdown">### 1. 🔥 [HiTac-WAM: A Hierarchical Tactile World Action Model for Contact-Rich Robot Manipulation] (HiTac-WAM：一种用于接触丰富机器人操作的分层触觉世界动作模型)
+- **研究机构**: `原文未提及`
+- **Arxiv ID**: `2608.19574` | [点击跳转](https://arxiv.org/abs/2608.19574)
+
+**0. 论文标题**
+- **英文标题**: HiTac-WAM: A Hierarchical Tactile World Action Model for Contact-Rich Robot Manipulation
+- **中文标题**: HiTac-WAM：一种用于接触丰富机器人操作的分层触觉世界动作模型
+- **研究机构**: 原文未提及
+- **一句话总结**: 提出了一种分层触觉世界动作模型，通过显式建模接触、变形和滑动的物理依赖关系来预测未来触觉状态，从而在接触丰富的机器人操作任务中实现更优的动作选择与在线纠偏。
+
+**1. 整体逻辑**
+- **研究任务**: 接触丰富的机器人操作（Contact-rich robot manipulation）中的动作规划与执行。
+- **研究动机**: 现有的视觉世界动作模型在接触丰富任务中受限于遮挡，视觉信号无法准确反映末端执行器的真实接触状态；而现有的触觉预测模型通常将接触、变形和滑动混为一谈或作为独立目标预测，忽略了它们之间内在的物理依赖关系（例如：没有接触就不会有变形，滑动风险依赖于接触和变形状态）。
+- **本质改动**: 将触觉预测从单一或独立的输出，改为按物理依赖关系组织的有向层级预测（接触 -> 3D变形 -> 滑动风险），并将预测结果直接用于候选动作的排序和在线执行验证。
+- **技术溯源**: 基于预训练的视觉世界动作模型（World action models）和 FG-CLTP 触觉编码器。
+
+**2. 技术拆解**
+- **核心方法**: 
+  1) **分层触觉预测**：通过三个确定性预测头和 stop-gradient 机制，按物理顺序预测接触状态、接触条件下的3D变形和滑动风险；
+  2) **有向注意力掩码**：允许触觉查询关注视频-动作上下文，但屏蔽视觉和动作查询对触觉 token 的注意力；
+  3) **预测引导的动作选择与在线验证**：利用触觉预测和任务进度对候选动作排序，并保留选中预测作为执行时的参考，偏差过大时触发重规划。
+- **关键细节**: 
+  - **输入**：同步的 RGB 视图、机器人状态、双边触觉历史、语言指令，以及候选动作块（action chunk）。
+  - **输出**：每个候选动作块对应的未来触觉轨迹（接触状态、3D变形场、滑动风险）。
+  - **层级机制**：接触头的中间特征和预测值通过 stop-gradient 传递给变形头和滑动头；接触状态预测值作为门控信号（gating）作用于变形和滑动的最终输出。
+  - **注意力掩码**：在 Transformer 架构中，触觉 query 可以看 video/action context，但 video/action query 不能看 tactile context。
+- **训练/优化目标**: 联合损失函数，包含接触损失（BCE + 接触/释放时序约束）、变形损失（Huber loss，受真实接触状态 mask）和滑动损失（类别加权 BCE）。通过 stop-gradient 确保滑动损失不直接更新上游的接触和变形头。
+
+**3. 实验结果**
+- **实验设置**: 
+  - **数据集与环境**：原文未提及具体公开数据集名称，使用自建采集数据。硬件平台为 IMETA-Y1 机器人（配备 DM-Tac W2 触觉传感器和 3 个 RGB 相机）。包含芯片抓取、黑板擦拭和 USB 插入三个任务，每个任务 200 个 episode。
+  - **对比对象（Baseline）**：DreamZero（无触觉通道的世界动作模型）、Reactive Tactile（仅用当前触觉反馈）、Task-progress ranking（仅用视觉任务进度排序）。
+- **评价指标**: 
+  - **预测指标**：Contact F1、Onset/Release MAE、3D displacement L2、Top-20 Z MAE、Slip AUPRC。
+  - **系统指标**：真实机器人任务成功率（%）。
+- **主要结果**: 
+  - **预测性能**：平均 Contact F1 达到 0.921；相比单输出模型，分层结构使 3D displacement L2 误差降低 17.6%（0.056 mm vs 0.068 mm），Slip AUPRC 提升 60.4%（0.247 vs 0.154）。
+  - **动作选择**：在固定采样预算下，基于触觉预测的排序成功率（61.1%）显著高于仅基于视觉任务进度的排序（35.6%）和无触觉的 DreamZero（31.1%）。
+  - **在线验证**：加入在线预测验证（偏差触发重规划）后，完整系统（Full HiTac-WAM）的平均真实机器人成功率进一步提升至 72.2%。
+
+---
+
+
+### 2. 🔥 [Fine-Tuning VLAs with Self-Demonstrated Generative Control for Multi-Task Manipulation] (使用自演示生成控制微调VLA以实现多任务操作)
+- **研究机构**: `UIUC (University of Illinois Urbana-Champaign)`
+- **Arxiv ID**: `2608.19490` | [点击跳转](https://arxiv.org/abs/2608.19490)
+
+**0. 论文标题**
+- **英文标题**: Fine-Tuning VLAs with Self-Demonstrated Generative Control for Multi-Task Manipulation
+- **中文标题**: 使用自演示生成控制微调VLA以实现多任务操作
+- **研究机构**: UIUC (University of Illinois Urbana-Champaign)
+- **一句话总结**: 提出一种自监督生成回放方法，通过在新机器人上收集基座VLA的在线交互轨迹作为伪标签进行联合微调，在解决硬件差异导致的控制失效的同时，有效防止了微调过程中指令遵循能力和行为先验的灾难性遗忘。
+
+**1. 整体逻辑**
+- **研究任务**: 视觉-语言-动作（VLA）模型在新机器人实体（embodiment）上的少样本微调与持续学习。
+- **研究动机**: 现有的SOTA VLA（如 $\pi_{0.5}$）部署到新机器人时，因相机、夹爪等微小硬件差异会导致零样本抓取失败；而仅用新机器人的专家数据微调，又会引发灾难性遗忘，丧失原有的指令遵循（Instruction Following）能力和预训练行为先验（如“放置”动作）。
+- **本质改动**: 摒弃依赖原始预训练数据进行经验回放（Experience Replay）的传统思路，直接利用冻结的基座VLA在目标机器人上在线执行交互（即使任务失败），生成“自我演示（self-demonstrations）”数据，将其与少量新任务专家数据混合进行联合微调。
+- **技术溯源**: 基于 $\pi_{0.5}$ (VLA基座模型), ALOHA (双臂机器人硬件平台), RoboTwin (仿真环境), SigLIP (视觉编码器), PaliGemma (VLM骨干网络)。
+
+**2. 技术拆解**
+- **核心方法**: 自监督模仿学习（Self-Supervised Imitation Learning）结合生成回放（Generative Replay）。在目标机器人上，用冻结的基座模型在预训练分布内的熟悉任务上跑 rollout，收集观察-动作对作为自监督数据（$\mathcal{D}_{SS}$），与人工遥操作的专家数据（$\mathcal{D}_{ES}$）按 1:1 比例混合训练。
+- **关键细节**: 
+  - **输入**：多模态观察（相机图像、文本指令、机器人本体状态）。
+  - **输出**：连续动作块（action chunks，绝对关节角度，维度为 $H \times D$）。
+  - **模型结构**：基于 $\pi_{0.5}$ 架构，包含 SigLIP 视觉编码器、PaliGemma VLM 骨干和专门的 Action Expert。
+  - **数据收集**：自监督数据通过基座模型在目标硬件上在线交互生成，包含成功和失败的轨迹，无需人工标注，且天然消除了跨硬件的 domain gap。
+- **训练/优化目标**: 联合损失函数。包含两部分：1) 离散 FAST 动作 token 的交叉熵损失（Cross-Entropy）；2) 连续动作的条件流匹配损失（Conditional Flow Matching）。总损失为专家监督损失与自监督损失的加权和。
+
+**3. 实验结果**
+- **实验设置**: 
+  - **数据集与环境**：真实环境使用 ALOHA 双臂机器人（包含 Pick up, Pick-and-place, Laundry, Caterpillar gear insertion 等任务）；仿真环境使用 RoboTwin (ALOHA-Agilex embodiment)。
+  - **对比对象（Baseline）**：$\pi_{0.5}$ Zero-Shot, $\pi_{0.5}$ Single/Multi-Task ES (仅专家数据微调), 仿真中的 Oracle (假设可访问原始预训练数据的经验回放), LoRA, 以及各类参数冻结微调策略。
+- **评价指标**: 成功率（Success Rate, SR，任务是否完成）和指令遵循率（Instruction Following, IF，分为抓取前 pre-grasp 和抓取后 post-grasp 的动作意图是否符合文本指令）。
+- **主要结果**: 
+  - **真实机器人（ALOHA）**：相比仅用专家数据微调（Multi-Task ES），本文方法（ES+SS）在专家任务上的 SR 从 65% 提升至 90%；在缺乏专家数据的自监督任务（如 pick-and-place）上，SR 从 0% 恢复至 55%；在完全未见过的 held-out 任务（如 "push"）上，保留了 60% 的 SR（Multi-Task ES 仅 5%）。在接触丰富的新任务（Caterpillar gear insertion）上，SR 从 30% 大幅提升至 90%。
+  - **仿真环境（RoboTwin）**：仅用专家数据微调会导致旧任务灾难性遗忘（SR 从 90.8% 暴跌至 16.6%），本文方法将旧任务 SR 恢复至 70.6%，同时新任务 SR 从 93% 提升至 98%。性能接近假设能访问原始数据的 Oracle 方法（70.6% vs 85.6%），且显著优于 LoRA 等参数高效微调方法。
+
+---
+
+
+### 3. 🔥 [DECOWAM: Decoupled Whole-Body World-Action Model for Legged Mobile Manipulation] (DECOWAM：用于腿式移动操作的解耦全身世界-动作模型)
+- **研究机构**: `原文未提及`
+- **Arxiv ID**: `2608.20114` | [点击跳转](https://arxiv.org/abs/2608.20114)
+
+**0. 论文标题**
+- **英文标题**: DECOWAM: Decoupled Whole-Body World-Action Model for Legged Mobile Manipulation
+- **中文标题**: DECOWAM：用于腿式移动操作的解耦全身世界-动作模型
+- **研究机构**: 原文未提及
+- **一句话总结**: 本文属于方法创新、系统工程与数据集构建工作。提出了一种解耦全身世界-动作模型DECOWAM，通过显式分离基座控制、机械臂操作和相机自运动，在参数高效微调下实现了腿式移动机器人的高质量未来视觉预测与全身协调控制，并配套发布了ARMDOG真机数据集。
+
+**1. 整体逻辑**
+- **研究任务**: 腿式移动操作（Legged mobile manipulation）中的全身世界-动作联合预测与控制，即同时预测未来RGB视频和全身动作序列。
+- **研究动机**: 现有的世界-动作模型（WAM）多为固定基座设计，未区分相机自运动与基座/机械臂动作。在腿式移动平台上，相机随基座移动导致图像混合了自运动和场景动态；且动作空间包含不同控制频率和语义的基座速度与机械臂关节，单一隐变量难以同时表征导航和操纵意图。
+- **本质改动**: 将移动操作解耦为基座移动、机械臂操作和相机自运动三个显式因子，通过对抗性分离、特权信息蒸馏和自运动条件注入，在冻结的预训练视频骨干上进行参数高效适配。
+- **技术溯源**: 基于 FastWAM（底层为 Wan-2.2 视频扩散骨干和 ActionDiT 动作分支），以及 Conditional Flow Matching（条件流匹配）训练范式。
+
+**2. 技术拆解**
+- **核心方法**: 
+  1. 分阶段参数高效微调：Stage 1 全参数对齐数据分布，Stage 2 冻结主干，仅训练残差适配器（Residual adapters）。
+  2. 动作等效未来瓶颈：利用特权未来帧特征训练教师网络，蒸馏出仅依赖当前帧和状态的因果学生特征，为动作预测提供未来先验。
+  3. 基座-机械臂对抗解耦：将动作上下文映射为两个16维隐变量，利用梯度反转层（GRL）强制分离基座速度和机械臂关节信息。
+  4. 自运动感知视频条件：将当前归一化基座速度作为显式Token注入视频分支，解释相机视角的平移和旋转。
+- **关键细节**: 
+  - 输入：当前RGB帧、14维全身状态（包含6维臂、1维夹爪、3维基座速度、4维padding）、语言指令。
+  - 输出：8帧未来RGB视频（384x320分辨率）和48步14维动作序列。
+  - 规模：总参数约67.5亿，Stage 2 可训练参数仅25.95M。
+- **训练/优化目标**: 
+  - 视频和动作分支均采用条件流匹配（Conditional Flow Matching）损失。
+  - 额外损失包括：未来瓶颈的动作重建、师生蒸馏与几何保持损失；基座/机械臂解耦的直接预测与GRL对抗损失。
+
+**3. 实验结果**
+- **实验设置**: 
+  - 数据集：自建的 ARMDOG 数据集（1487个episode，34.3万帧，15Hz同步的四足机器人+6DoF机械臂的视频、状态、动作和语言）。
+  - 对比对象（Baseline）：FastWAM（不同训练步数）、Motus、Cosmos、X-WAM、UVA 等世界-动作模型，以及 $\pi_{0.5}$、X-VLA、GR00T 等纯视觉-语言-动作（VLA）模型。
+  - 测试环境：离线23个episode的固定Replay协议；真机79次闭环部署试验。
+- **评价指标**: 
+  - 离线：视频预测的 Frame MSE、PSNR、SSIM、LPIPS；动作预测的 A-MSE、A-MAE、A-L2。
+  - 真机：任务成功率、平均完成时间、各阶段（接近、抓取、运输、放置）累积完成率，以及基座对接、全身协调、基座位移鲁棒性和自主恢复成功率。
+- **主要结果**: 
+  - 离线Replay：相比最优的FastWAM(50k)，DECOWAM的 Frame MSE 降低 15.03%，Action MSE 降低 21.71%。在所有WAM baseline中指标全面第一；动作预测精度仅次于X-VLA，但额外提供了8帧未来视频预测。
+  - 真机部署：任务成功率达 58.2%（与FastWAM的57.0%持平，远超X-WAM的15.2%），平均完成时间 49s（最快）。在全身协调（WBCM-SR 44.3%）和基座位移鲁棒性（BDP-SR 30.4%）上显著优于所有baseline，有效解决了基线模型在需要静止时基座乱动的问题。
+  - 参数效率：Stage 2 可训练参数从 60.2亿 降至 2595万（缩减约232倍），推理延迟仅增加 11.4%。
+
+---
+
+
+### 4. 🔥 [Logic-VLA: A Temporal Logic Conditioned Vision-Language-Action Model] (Logic-VLA：一种时序逻辑条件化的视觉-语言-动作模型)
+- **研究机构**: `南加州大学 (USC)`
+- **Arxiv ID**: `2608.20556` | [点击跳转](https://arxiv.org/abs/2608.20556)
+
+**0. 论文标题**
+- **英文标题**: Logic-VLA: A Temporal Logic Conditioned Vision-Language-Action Model
+- **中文标题**: Logic-VLA：一种时序逻辑条件化的视觉-语言-动作模型
+- **研究机构**: 南加州大学 (USC)
+- **一句话总结**: 提出 Logic-VLA，通过引入时序逻辑（STL）图编码器和“SFT+轨迹级偏好优化”的两阶段后训练框架，使单一 VLA 模型能在推理时动态适应严格的安全与时空形式化约束，同时几乎不损失原有自然语言任务的成功率。
+
+**1. 整体逻辑**
+- **研究任务**: 让视觉-语言-动作（VLA）模型在闭环机器人控制（如无人机导航）中，能够同时遵循自然语言任务指令和严格的时序逻辑（STL）形式化约束（如保持安全距离、按特定顺序访问、在截止时间前完成等）。
+- **研究动机**: 自然语言难以精确、无歧义地表达安全关键或复杂的时空要求；而现有的 VLA 后训练方法要么只能对齐单一的全局安全目标，要么在部署时需要额外的优化或推理模块，无法做到在推理时仅通过改变输入条件来适应不同的形式化需求。
+- **本质改动**: 将时序逻辑（STL）公式作为策略的额外输入条件，并设计了一套两阶段后训练框架：先通过 SFT 模仿满足约束的轨迹，再通过轨迹级偏好优化让模型学会区分“满足”和“违反”同一 STL 约束的轨迹，从而将形式化需求内化到策略权重中。
+- **技术溯源**: 基于 $\pi_{0.5}$（flow-matching VLA）作为基座策略，基于 TeLoGraF 构建语法图（syntax-graph）STL 编码器。
+
+**2. 技术拆解**
+- **核心方法**: 
+  1. **语法图 STL 编码器**：将 STL 公式解析为有向图（节点为逻辑/时序/比较运算符，边为操作数关系），通过 GCN 提取图特征，并利用 STL 鲁棒语义（robust semantics）进行预训练，使其能捕捉时序逻辑的语义。
+  2. **两阶段后训练**：
+     - 阶段一（STL-SFT）：在满足 STL 约束的演示数据上进行条件流匹配（conditional flow-matching）的监督微调。
+     - 阶段二（轨迹级偏好优化）：构建“满足-违反”匹配轨迹对，使用基于流匹配损失代理的 Identity Preference Optimization (IPO) 进行轨迹级偏好优化，并引入单向锚点（one-sided anchor）防止满足轨迹的拟合质量下降。
+- **关键细节**: 
+  - **输入输出**：输入为视觉观察、自然语言任务、STL 规范（编码为 $N_{spec}$ 个 token 拼接到 VLM 前缀中）；输出为动作块（action chunk）。
+  - **模型结构**：2B 的视觉-语言骨干网络 + 300M 的动作专家（action expert），使用 LoRA 微调（秩分别为 16 和 32），视觉编码器和动作投影层全参数微调。
+  - **STL 编码器细节**：节点特征包含运算符类型、时间边界、信号标识、阈值等；预训练时通过辅助轨迹编码器和 MLP 头预测鲁棒语义。
+- **训练/优化目标**: 
+  - **编码器预训练**：预测 STL 鲁棒语义的 Huber 损失。
+  - **阶段一**：标准的条件流匹配损失。
+  - **阶段二**：Huberized IPO-style 有限边际偏好损失（优化满足与违反轨迹的流匹配损失差值），加上一个单向的 preferred-rollout anchor 损失（防止当前策略在满足轨迹上的损失大于冻结的参考策略）。
+
+**3. 实验结果**
+- **实验设置**: 
+  - **数据集与环境**：NVIDIA Isaac Sim 5.1 中的闭环四旋翼无人机导航仿真。10 个随机仓库环境，6 个自然语言导航任务。收集了 3000 条参考轨迹，过滤分组后得到 8886 条满足 STL 的 rollout 用于 SFT，13494 对匹配轨迹用于偏好优化。
+  - **对比对象（baseline）**：Base (无 STL 条件的 $\pi_{0.5}$), STL-SFT (仅做阶段一), Smooth Robust Semantics ($1\times$ 和 $2\times$，直接在流匹配损失上加可微 STL 鲁棒语义最大化)。
+- **评价指标**: STL 满足率 (STL satisfaction rate)、平均 STL 鲁棒语义 (mean robust semantics)、最小鲁棒语义 ($\rho_{\min}$)、自然语言任务成功率 (NL task success)。
+- **主要结果**: 
+  - 相比 Base，Logic-VLA 在 Seen、Unseen Parameter、Unseen Structure 三种设置下，STL 满足率提升了 24.8 到 40.7 个百分点 (pp)。
+  - 自然语言任务成功率最多只下降 1.8 pp，证明偏好优化在引入约束的同时保住了基础任务能力。
+  - 相比 Smooth Robust Semantics，Logic-VLA 避免了 NL 任务成功率的大幅下降（Smooth Robust $2\times$ 导致任务成功率暴跌至 45.0%）。
+  - 消融实验证明：STL 编码器的语义预训练比随机初始化效果好；语法图编码比直接把 STL 转成文本 prompt 的条件化效果更好。
+
+---
+
+
+### 5. 🔥 [Just Noticeable Difference Modeling for Token Compression in Vision-Language-Action Models] (面向视觉-语言-动作模型Token压缩的恰可察觉差异(JND)建模)
+- **研究机构**: `原文未提及`
+- **Arxiv ID**: `2608.21247` | [点击跳转](https://arxiv.org/abs/2608.21247)
+
+**0. 论文标题**
+- **英文标题**: Just Noticeable Difference Modeling for Token Compression in Vision-Language-Action Models
+- **中文标题**: 面向视觉-语言-动作模型Token压缩的恰可察觉差异(JND)建模
+- **研究机构**: 原文未提及
+- **一句话总结**: 提出Action-JND机制，通过评估视觉token特征扰动对VLA策略动作输出的影响来量化token的“可压缩性”，以此指导KV-cache复用和token剪枝，在激进压缩比例下显著提升机器人闭环控制的任务成功率。
+
+**1. 整体逻辑**
+- **研究任务**: 降低视觉-语言-动作（VLA）模型在机器人闭环控制中的推理延迟和计算成本，具体通过Token压缩技术（包括KV-cache复用和视觉token剪枝）来实现。
+- **研究动机**: 现有的VLA token压缩方法（如基于视觉相似度、注意力分数、显著性）依赖冗余度或重要性等间接代理信号，无法直接回答“这个token被压缩后，下游机器人的动作偏差是否在安全范围内”这一核心问题。在激进压缩下，这些间接信号容易失效，导致动作敏感区域（如夹爪、接触点）被错误压缩，造成任务失败。
+- **本质改动**: 将传统的“恰可察觉差异（JND）”理论从人类视觉/静态机器任务扩展到具身感知（Embodied Perception），提出Action-JND。不再用信号失真或分类准确率来定义“可察觉”，而是直接用“VLA策略输出的机器人动作偏差”来定义token变化的容忍边界。
+- **技术溯源**: 基于VLA模型（如OpenVLA, OpenVLA-OFT），借鉴了JND理论（从人类视觉JND到机器导向JND如FeatJND），以及现有的VLA加速方法（如VLA-Cache, FastV, SparseVLM, DivPrune）。
+
+**2. 技术拆解**
+- **核心方法**: 训练一个轻量级的token级JND估计器（Action-JND Estimator）。在冻结的VLA策略下，该估计器在深度视觉特征空间预测每个token的最大允许扰动，同时约束扰动前后的动作输出偏差在容忍阈值内。预测出的扰动幅度被转化为“动作容忍度分数（Action-tolerance score）”，作为即插即用的排序信号，指导现有的KV-cache复用和token剪枝。
+- **关键细节**: 
+  - **输入输出**: 输入是VLA提取的投影视觉token特征（单视角16×16=256个token，或双视角512个token），输出是每个token的扰动图/动作容忍度分数。
+  - **模型结构**: JND估计器是一个轻量级CNN架构，包含3×3空间卷积、空间残差块、通道混合残差块和1×1输出投影。双视角下使用两个独立参数的估计器分别处理主视角和腕部视角。
+  - **动作偏差度量**: 对于离散动作策略（如OpenVLA），使用动作token分布的KL散度；对于连续动作策略（如OpenVLA-OFT），使用平移、旋转和夹爪控制的加权L1距离。
+  - **分数计算**: 分为绝对分数（用于token剪枝）和相对分数（用于KV-cache复用，以消除特征尺度影响）。
+- **训练/优化目标**: 无约束优化目标。在保持VLA策略冻结的情况下，最小化损失函数：$\mathcal{L}_{\mathrm{JND}} = \lambda_{\mathrm{act}} \cdot D_{\mathrm{act}}(r_t, \tilde{r}_t) - \lambda_{\mathrm{mag}} \cdot M(\hat{\Delta}_t)$。即：在惩罚动作偏差（$D_{\mathrm{act}}$）的同时，最大化预测的扰动幅度（$M$，即L2范数）。
+
+**3. 实验结果**
+- **实验设置**: 
+  - **数据集**: LIBERO机器人操作基准（包含Spatial, Object, Goal, Long四个套件）。
+  - **基座模型**: OpenVLA（单视角，离散动作）和 OpenVLA-OFT（双视角，连续动作）。
+  - **对比对象（Baseline）**: KV-cache复用对比VLA-Cache, FastV, SparseVLM, DivPrune；Token剪枝对比FastV, SparseVLM, DivPrune及基于VLA-Cache改造的剪枝baseline。
+  - **压缩设置**: KV-cache复用测试了soft adaptive和30%、40%、60%、80%的strict_guarded比例；Token剪枝测试了25%、50%、75%、87.5%的比例。
+- **评价指标**: 任务性能看各套件及平均成功率（Acc.）和相对提升（$\Delta$ Acc.）；效率指标看FLOPs、相对FLOPs、CUDA延迟（Latency）、相对延迟变化（$\Delta$ Latency）和控制频率（Freq. Hz）。
+- **主要结果**: 
+  - **KV-cache复用**: 在高复用率下优势显著。在OpenVLA上80%复用率时，Action-JND平均准确率比VLA-Cache高出41.65%（达到55.45% vs 13.80%），同时延迟降低11.28ms，控制频率达到28.81Hz。在OpenVLA-OFT上80%复用率时，准确率比VLA-Cache高出10.10%。
+  - **Token剪枝**: 从50%剪枝率开始持续领先。在87.5%的激进剪枝率下，OpenVLA的平均准确率比VLA-Cache baseline高出11.65%（42.00% vs 30.35%），比最强竞品高出6.55%。同时FLOPs降至原始的33.06%，延迟从52.88ms降至30.16ms，控制频率从18.91Hz提升至33.15Hz。
+  - **结论**: Action-JND在激进压缩比例下能更可靠地保留动作敏感信息，实现了推理效率与任务成功率之间更好的权衡。
+
+---
+
+
+### 6. 🔥 [Graph-Operator World Models for Morphology-Parameter Generalization in Continuous Control] (用于连续控制中形态学参数泛化的图算子世界模型)
+- **研究机构**: `原文未提及`
+- **Arxiv ID**: `2608.20936` | [点击跳转](https://arxiv.org/abs/2608.20936)
+
+**0. 论文标题**
+- **英文标题**: Graph-Operator World Models for Morphology-Parameter Generalization in Continuous Control
+- **中文标题**: 用于连续控制中形态学参数泛化的图算子世界模型
+- **研究机构**: 原文未提及
+- **一句话总结**: 本文属于强化学习领域的方法创新与基准构建工作，提出了一种图结构世界模型，通过将状态转移显式解耦为“形态学无关的局部动力学基”和“形态学条件化的图算子”，实现了机器人在物理参数（如质量、长度）变化时的零样本泛化，并配套提出了相应的MuJoCo评测基准。
+
+**1. 整体逻辑**
+- **研究任务**: [领域与类型：强化学习/连续控制，属于方法创新与基准构建] 连续控制中的形态学参数泛化（Morphology-parameter generalization）。即在机器人拓扑结构不变，但物理参数（连杆长度、质量、阻尼、执行器齿轮等）发生未知变化时，实现零样本的动力学预测与模型预测控制（MPC）规划。
+- **研究动机**: 现有的世界模型（如DreamerV3、TD-MPC2）通常针对固定物理系统训练，参数一变性能就下降。现有的条件化方法虽然把形态学参数拼接到输入里，但没有从架构上约束模型“哪些局部动力学特征该复用，哪些耦合关系该随参数改变”，导致模型学不到真正的物理规律，泛化能力受限。
+- **本质改动**: 强行把状态转移预测拆成两半：用一个“形态学盲（morphology-blind）”的共享局部核预测基础动力学增量，再用一个“只看静态形态参数”的图算子（Graph Operator）对这个增量进行结构化调制。从架构上逼迫模型分离可复用特征与形态学相关特征。
+- **技术溯源**: 基于 TD-MPC / TD-MPC2 的模型预测控制（MPC）框架与想象轨迹规划接口，结合了图神经网络（GNN）处理关节机器人拓扑的归纳偏置。
+
+**2. 技术拆解**
+- **核心方法**: GraphOp-WM（图算子世界模型）。把机器人建模为属性图（节点是身体，边是关节和执行器）。核心转移公式为 $\hat{Z}_{t+1} = Z_t + \mathcal{A}_{m,t} \bar{B}_t$。其中 $\bar{B}_t$ 是归一化的共享局部动力学基，$\mathcal{A}_{m,t}$ 是由形态学参数条件化的结构化图算子。
+- **关键细节**: 
+  - **局部动力学基**：由共享局部核预测，**严禁**输入任何静态形态学参数（如质量、长度），只能看局部动态状态和动作，保证这部分学到的规律是通用的。
+  - **结构化图算子**：由形态学编码器生成，包含三部分：对角矩阵（节点局部响应）、关联矩阵项（沿运动学树的边耦合）、低秩全局项（残差全局模式）。算子的系数还会被当前的动态状态门控调制。
+  - **变长接口**：图级读出（Global readout）用于奖励和价值预测；动作直接附着在执行器边上，天然支持不同形态学带来的变长动作空间，无需全局最大动作维度。
+- **训练/优化目标**: 
+  - 动力学预测损失（MSE）。
+  - **成对形态学监督（Paired-morphology supervision）**：核心 trick。对同一初始状态和动作序列，让不同形态学变体共享同一个局部基，仅算子不同，强制形态学差异由算子吸收。
+  - 算子正则化：鼓励算子接近单位矩阵，并对局部、边、全局修正项施加正则，防止过拟合。
+  - 标准的TD价值损失和奖励预测损失。
+
+**3. 实验结果**
+- **实验设置**: 
+  - **数据集与环境**：MuJoCo 物理引擎，包含 Hopper, Walker2d, HalfCheetah 三个运动家族。
+  - **对比对象（baseline）**：原文未提及。
+  - **评测基准（Benchmark）**：作者自定义了形态学参数划分，包括训练包络内的插值（Interpolation）、包络外的外推（Extrapolation）、以及未见过的参数组合（Held-out composition），涉及连杆长度、质量、躯干质量、关节阻尼和执行器齿轮的缩放。
+- **评价指标**: 原文未提及。
+- **主要结果**: 原文未提及。
+
+---
+
+
+### 7. 🔥 [ForeTime-VLA: Causal Future-Token Distillation from a World Action Model for Conveyor-Belt Manipulation] (ForeTime-VLA：面向传送带操作的世界动作模型因果未来Token蒸馏)
+- **研究机构**: `原文未提及`
+- **Arxiv ID**: `2608.20735` | [点击跳转](https://arxiv.org/abs/2608.20735)
+
+**0. 论文标题**
+- **英文标题**: ForeTime-VLA: Causal Future-Token Distillation from a World Action Model for Conveyor-Belt Manipulation
+- **中文标题**: ForeTime-VLA：面向传送带操作的世界动作模型因果未来Token蒸馏
+- **研究机构**: 原文未提及
+- **一句话总结**: 提出ForeTime-VLA，通过离线蒸馏世界动作模型（WAM）的未来预测特征为轻量级因果Token，在不增加推理成本的前提下，显著提升VLA策略在动态传送带抓取任务中的接触时机与末端姿态预测能力。
+
+**1. 整体逻辑**
+- **研究任务**: 动态传送带上的移动物体抓取操作。该任务要求策略不仅能看清当前物体，还要预判物体何时进入可抓取范围、何时闭合夹爪以及接触时的末端姿态。
+- **研究动机**: 现有的视觉-语言-动作（VLA）策略通常仅基于当前观测进行微调，缺乏对未来动态的显式监督。虽然世界动作模型（WAMs）可以通过视频预测提供这种监督，但在推理时运行视频级Teacher或显式生成未来帧的计算成本过高，无法满足实时控制需求。
+- **本质改动**: 将WAM的未来预测能力离线蒸馏为一个64维的“动作等效”紧凑特征，并在推理时仅用8帧因果历史来预测该特征。通过这种方式，在不运行视频生成模型的情况下，赋予策略“预见未来”的能力。
+- **技术溯源**: 基于 $\pi_{0.5}$ (dense $\pi_{0.5}$，包含Gemma-2B VLM和Gemma-300M动作专家)；离线Teacher的视觉特征提取使用了Fast-WAM中的Wan2.2 video VAE。
+
+**2. 技术拆解**
+- **核心方法**: 采用离线Teacher-Student蒸馏架构。离线阶段利用特权未来帧训练一个Adapter生成64维目标特征并缓存；在线阶段，Student通过8帧历史预测该特征及操作阶段、状态转换时间，并通过双路径（慢速VLM前缀和快速动作专家后缀）注入到 $\pi_{0.5}$ 中。
+- **关键细节**: 
+  - **输入输出**：输入为当前RGB观测、语言指令、机器人状态、8帧因果历史（状态和视觉统计）；输出为20步×16维的动作chunk。
+  - **离线Teacher**：用冻结的Wan2.2 VAE提取当前和未来帧特征，结合状态输入Adapter，输出64维白化特征并缓存。
+  - **在线Student**：轻量级MLP编码器处理8帧历史，输出64维未来特征、4个操作阶段logits和1个转换时间标量。新增模块仅1.251M参数。
+  - **双路径注入**：未来特征和阶段Token拼接到VLM前缀（Slow path）；未来特征和转换时间作为残差和自适应归一化（AdaLN）条件注入动作专家（Fast path）。
+- **训练/优化目标**: 保留原有的Flow-matching动作损失（不替换真实动作标签）。新增损失包括：未来特征余弦相似度损失（点对点）、关系几何损失（批次Gram矩阵）、操作阶段交叉熵、转换时间Huber损失，以及辅助动作重建损失。
+
+**3. 实验结果**
+- **实验设置**: 
+  - **数据集**：自建去重传送带抓取数据集（458个episodes，96512帧），包含静止和不同速度传送带场景。
+  - **对比对象（Baseline）**：$\pi_{0.5}$ baseline, GR00T N1.6-3B, StarVLA, SmolVLA-450M。
+- **评价指标**: 
+  - **离线**：动作重建的MSE、MAE和L2误差。
+  - **真机**：抓取成功率，以及移动抓取中的失败类型细分（过早失败、过晚失败、接触姿态错误）。
+- **主要结果**: 
+  - **离线指标**：相比 $\pi_{0.5}$ baseline，Test MAE降低2.63%（从0.134119降至0.130593），L2降低3.02%。末端执行器姿态（RPY）误差改善最显著（降低3.78%）。推理延迟仅增加2.46%–2.93%。
+  - **真机表现**：静止抓取成功率81.1%（比次优的StarVLA高12.2%），慢速移动抓取成功率58.9%（比次优的 $\pi_{0.5}$ 高22.2%）。在三种速度综合测试中成功44/90次（$\pi_{0.5}$ 为23/90），在快速传送带下成功11/30次（$\pi_{0.5}$ 仅2/30次）。
+  - **结论验证**：真机测试中“过晚失败”和“接触姿态错误”大幅减少，与离线指标中末端姿态精度的提升相吻合，证明了因果未来Token蒸馏能有效改善动态操作中的接触时机与几何预测。
+
+---
+</script>
+            <script>
+                const rawMdElement = document.getElementById('raw-markdown');
+                if (rawMdElement) {
+                    document.getElementById('content').innerHTML = marked.parse(rawMdElement.textContent);
+                    // 渲染后触发公式排版
+                    if (window.MathJax && window.MathJax.typesetPromise) {
+                        window.MathJax.typesetPromise();
+                    }
+                }
+                function copySources() { /* 原代码保持不变 */ }
+            </script>
+        </body>
+        </html>
+        
