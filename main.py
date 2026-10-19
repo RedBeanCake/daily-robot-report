@@ -305,9 +305,10 @@ def only_filter_and_report(papers, date_info=None):
         filter_prompt = f"""你是一个专注于【大模型具身智能】的顶级研究员。请从以下论文中筛选出符合要求的论文，并为它们打分（1-10分，10分为极度相关）。
 
         ✅ 必须保留（相关度 7-10 分）：
-        1. VLA (Vision-Language-Action)、WAM (World-Action-Model)、World Models (世界模型)、World Modeling、视频生成。
-        2. World-Action Model、Video-Action Model、Diffusion Policy。
-        3. 具身 Scaling Laws、跨具身数据集、多模态融合注意力。
+        1. Agent、Harness、RSI、自进化等。
+        2. VLA (Vision-Language-Action)、WAM (World-Action-Model)、World Models (世界模型)、World Modeling、视频生成。
+        3. World-Action Model、Video-Action Model、Diffusion Policy。
+        4. 具身 Scaling Laws、跨具身数据集、多模态融合注意力。
         
         🛑 需要剔除（直接丢弃，不要输出）：
         1. 经典控制(PID, MPC)、硬件/软体/步态研究。
