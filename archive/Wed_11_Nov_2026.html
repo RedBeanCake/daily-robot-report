@@ -1,0 +1,524 @@
+
+        <!DOCTYPE html>
+        <html lang="zh-CN">
+        <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>🤖 具身大模型简报 - Wed, 11 Nov 2026 (VLA: 11 of 69 entries)</title>
+            <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.2.0/github-markdown.min.css">
+            <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+            <script>
+                window.MathJax = {
+                    tex: { inlineMath: [['$', '$'], ['\\(', '\\)']], displayMath: [['$$', '$$'], ['\\[', '\\]']] },
+                    options: { skipHtmlTags: ['script', 'style', 'textarea'] }
+                };
+            </script>
+            <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+            <style>
+                .markdown-body { box-sizing: border-box; min-width: 200px; max-width: 980px; margin: 0 auto; padding: 45px; }
+                @media (max-width: 767px) { .markdown-body { padding: 15px; } }
+            </style>
+        </head>
+        <body class="markdown-body">
+            <a href='../index.html' style='margin-bottom:20px; display:block;'>← 返回主索引</a>
+            <h1>🤖 具身大模型简报 - Wed, 11 Nov 2026 (VLA: 11 of 69 entries)</h1>
+            <div id="content"></div>
+            
+            <script type="text/markdown" id="raw-markdown">### 1. 🔥 [Is Your Robot's Memory Just a Clock? Temporal Shortcuts in Memory-Augmented VLA Policies] (你的机器人记忆只是个时钟吗？记忆增强VLA策略中的时间捷径)
+- **研究机构**: `原文未提及`
+- **Arxiv ID**: `2611.14488` | [点击跳转](https://arxiv.org/abs/2611.14488)
+
+**0. 论文标题**
+- **英文标题**: Is Your Robot's Memory Just a Clock? Temporal Shortcuts in Memory-Augmented VLA Policies
+- **中文标题**: 你的机器人记忆只是个时钟吗？记忆增强VLA策略中的时间捷径
+- **研究机构**: 原文未提及
+- **一句话总结**: 揭示了记忆增强VLA策略因按时间采样记忆而陷入“时间捷径”，将无效等待误判为任务进度，并验证了按事件索引记忆可有效修复该问题。
+
+**1. 整体逻辑**
+- **研究任务**: 评估和修复记忆增强视觉-语言-动作（VLA）策略在机器人操作任务（特别是需要计数的任务）中的记忆机制缺陷。
+- **研究动机**: 现有的记忆增强VLA策略通常按时间均匀采样历史帧并打上时间戳。但时间流逝不代表任务有实质进展（如机器人暂停或空转），这种按时间填充的记忆无法区分“等待”和“工作”，导致策略产生“幽灵进度”（phantom progress）而提前结束任务。
+- **本质改动**: 指出问题根源不在于时间戳编码本身，而在于“按时间索引记忆”的机制；提出将记忆的索引方式从“按时间”改为“按事件（世界状态是否发生实质改变）”。
+- **技术溯源**: 基于 $\pi_{0.5}$ 基座模型、RoboMME 基准测试及 MME-VLA 策略家族；分析中涉及 Open X-Embodiment (austin_sailor, stanford_hydra)、FMB、LIBERO-10 等真实遥操作数据集。
+
+**2. 技术拆解**
+- **核心方法**: 
+  1. **诊断问题**：在测试时注入“空事件”（null events，如暂停、手腕空转、空气抓取），观察策略是否提前停止。
+  2. **溯源分析**：证明策略利用了“时间捷径”（因为演示数据中时间流逝与进度高度相关）。通过缩放时间戳证明策略依赖时间；通过去除时间戳训练（NoClock）证明即使没有时间戳，空事件占据的记忆槽位依然会导致失败。
+  3. **提出修复**：在测试时引入“事件索引”（event index），当世界状态（机器人位姿、场景、接触状态）回到之前状态时，将该段空事件折叠为单帧，重新计算时间位置，使记忆仅随事件推进。
+- **关键细节**: 
+  - **记忆结构**：MME-VLA的记忆（如FrameSamp）保留32帧，按时间均匀采样，并带有正弦时间步编码。
+  - **空事件注入**：在动作块边界注入暂停（pause，5秒/100步）、手腕空转（wrist fidget）、空气抓取（air-grasp）。
+  - **事件索引机制**：利用模拟器信号（机器人轮廓、夹爪宽度、外部力）检测状态循环，将无实质变化的区间折叠为单帧。
+- **训练/优化目标**: 主要为模仿学习。论文中基于 $\pi_{0.5}$ 在 RoboMME 训练数据上重新训练了带时间戳（Clock）和不带时间戳（NoClock）的模型（30k步）。修复方法（事件索引）直接在测试时应用，无需重新训练。
+
+**3. 实验结果**
+- **实验设置**: 
+  - **数据集与任务**：RoboMME 基准中的两个计数任务（PickXtimes 和 SwingXtimes），以及其他14个任务。
+  - **对比对象（Baseline）**：RoboMME 发布的 MME-VLA 策略（如 FrameSamp-Modul, FrameSamp-Expert, TokenDrop-Modul 等），重新训练的 Clock 和 NoClock 模型，以及 MemER-style、Text sub-goals 等记忆设计。
+  - **测试环境**：仿真环境。通过对比“可见”（空事件帧进入记忆）和“隐藏”（空事件帧不进入记忆）条件来隔离变量。
+- **评价指标**: 任务成功率（Successes / 50 episodes）。失败类型分为提前停止（early，未完成K次就按按钮）和多做（extra）。
+- **主要结果**: 
+  - **空事件导致严重失败**：在 PickXtimes 中，注入两次5秒暂停使 FrameSamp-Modul 的成功率从 47/50 降至 16/50；SwingXtimes 从 44/50 降至 10/50。隐藏这些帧后成功率恢复，证明问题出在记忆而非物理干扰。
+  - **时间捷径验证**：放大时间戳（x1.5）导致提前停止，缩小（x0.5）导致多做。去除时间编码重新训练（NoClock）依然受暂停影响（成功率降至 21 和 14），证明问题在于按时间采样的槽位被空事件占据。
+  - **跨设计验证**：所有按时间索引的记忆（FrameSamp系列）均崩溃；按像素变化索引的（TokenDrop）受暂停影响小但受空转影响大；按子目标索引的（MemER, Text）不受影响。
+  - **修复效果**：在测试时应用事件索引，无需重训，使 Clock 模型在暂停、空转和空气抓取下的成功率至少翻倍（如 SwingXtimes 空气抓取从 13 提升至 43），恢复了大部分性能损失。
+
+---
+
+
+### 2. 🔥 [One Policy for 100 Household Tasks: Our Solution for the 2026 BEHAVIOR Challenge] (一个策略处理100个家务任务：我们对2026 BEHAVIOR Challenge的解决方案)
+- **研究机构**: `原文未提及（作者以独立团队 Robot-Learning-Collective 身份参赛）`
+- **Arxiv ID**: `2611.14432` | [点击跳转](https://arxiv.org/abs/2611.14432)
+
+**0. 论文标题**
+- **英文标题**: One Policy for 100 Household Tasks: Our Solution for the 2026 BEHAVIOR Challenge
+- **中文标题**: 一个策略处理100个家务任务：我们对2026 BEHAVIOR Challenge的解决方案
+- **研究机构**: 原文未提及（作者以独立团队 Robot-Learning-Collective 身份参赛）
+- **一句话总结**: 这项工作提出用单一VLA模型处理100个长程家务任务，通过训练优化、动作空间降维以及引入GPT-6 Astra Agent路由困难任务，在2026 BEHAVIOR Challenge中取得Top 10唯一独立团队的成绩。
+
+**1. 整体逻辑**
+- **研究任务**: 在OmniGibson仿真器中解决2026 BEHAVIOR Challenge的100个长程家务任务（如做饭、整理等），要求机器人（Galaxea R1Pro）根据视觉和状态输入完成多步骤连续操作。
+- **研究动机**: 团队在2025年的冠军方案存在明显的训练不足（undertrained）问题，且2026年任务数量翻倍至100个。原有按任务子集训练多个checkpoint的方式不再适用，需要单模型泛化并大幅提升训练效率。
+- **本质改动**: 将原先依赖多个checkpoint和简单时间切分的方案，升级为单一checkpoint覆盖100个任务。核心在于通过语义阶段重构、动作空间降维、方差缩减的流匹配训练优化，以及针对困难任务引入LLM Agent进行路由控制。
+- **技术溯源**: 基于 $\pi_{0.5}$ (PaliGemma VLM + Gemma action expert, Flow Matching) 架构，并继承了团队2025年BEHAVIOR冠军方案及LeHome Challenge方案的工程经验。
+
+**2. 技术拆解**
+- **核心方法**: 
+  1. **任务迁移与表示**：用基于技能标注的“语义阶段”替代等分时间阶段；通过相似任务加权平均来热启动（warm-start）新任务和阶段的嵌入向量；将动作空间从32维精简为匹配遥操作的21维。
+  2. **注意力机制修复**：在VLM和Action Expert中引入Registers、Scratch tokens和Attention sinks，通过参数手术（Parameter surgery）将SigLIP位置编码中的异常值转移，解决注意力图失效（注意力全集中在无意义的高范数cell上）的问题。
+  3. **训练优化**：采用分层时间（Stratified times）和对立噪声（Antithetic noise）进行方差缩减的多样本流匹配，并推导出无需消融实验即可计算最优流样本数 $K$ 的启发式公式。
+  4. **Agent路由**：针对VLA表现差的14个任务，让GPT-6 Astra在训练实例上进行“练习”并冻结会话，在推理时直接作为策略控制机器人。
+- **关键细节**: 
+  - **模型结构**：VLM为PaliGemma (SigLIP + Gemma 2B)，Action Expert为300M Gemma。输入包含3个224x224相机图像、任务/阶段嵌入、21维状态等。
+  - **动作空间**：21维（base 3, torso translate/tilt 2, 两臂各7, 两夹爪各2），去除了冗余的9维padding和独立的4维躯干关节，防止模型输出演示中不存在的躯干构型。
+  - **训练规模**：200k步，约遍历211M帧数据一次。先在1张B300上跑130k步（batch 480），后在8张H200上跑70k步（batch 2048）。
+  - **评估系统**：单GPU运行6个仿真器，通过持久化仿真器、硬件视频编码、批处理推理等优化，实现聚合吞吐量超实时（1.11x）。
+- **训练/优化目标**: 
+  - **主要损失**：Flow matching loss (权重1) + Stage prediction loss (权重0.1) + FAST auxiliary loss (权重0.05)。
+  - **优化目标**：最小化动作预测的流匹配速度误差，同时通过方差缩减技术降低梯度噪声，提升单位计算量下的信噪比。
+
+**3. 实验结果**
+- **实验设置**: 
+  - **数据集**：OmniGibson仿真器中的100个长程家务任务，共20000个遥操作演示（211M帧）。
+  - **对比对象**：团队2025年的冠军方案（4个checkpoint处理50个任务），以及纯VLA模型（$\pi_{0.5}$）与GPT-6 Astra Agent的对比。
+  - **测试环境**：OmniGibson仿真器，Galaxea R1Pro机器人。
+- **评价指标**: 
+  - **Q-score (q-score)**：满足目标谓词（goal predicates）的比例，1为完全成功。最终得分为各实例和各任务的平均Q值。
+  - **完全成功率（Full-task success rate）**：所有目标谓词均满足的episode比例。
+- **主要结果**: 
+  - **总排名**：第9名（Top 10中唯一的独立团队）。
+  - **公共提交得分**：Q=0.446，完全成功率27.3%。
+  - **VLA模型表现**：单一checkpoint在100个任务上平均Q=0.392；在2025年共享的50个任务上，Q从2025年的0.260提升至0.371。
+  - **Agent路由表现**：在14个VLA表现弱的任务上，GPT-6 Astra平均Q达到0.639，远超VLA的0.108。
+  - **失败模式分析**：相比2025年，顺序错误（Order）和机器人摔倒（Robot fell）显著减少，主要得益于语义阶段的引入和21维动作空间的约束；但灵巧操作（Dexterity）失败比例依然较高。
+
+---
+
+
+### 3. 🔥 [Elastic-WAM: Adaptive Spatiotemporal Imagination for Efficient Robot Control] (Elastic-WAM：用于高效机器人控制的自适应时空想象)
+- **研究机构**: `原文未提及`
+- **Arxiv ID**: `2611.14257` | [点击跳转](https://arxiv.org/abs/2611.14257)
+
+**0. 论文标题**
+- **英文标题**: Elastic-WAM: Adaptive Spatiotemporal Imagination for Efficient Robot Control
+- **中文标题**: Elastic-WAM：用于高效机器人控制的自适应时空想象
+- **研究机构**: 原文未提及
+- **一句话总结**: 针对世界-动作模型（WAM）推理开销大的问题，提出通过一个可学习的“统一时空需求场”动态分配视频去噪的计算资源（决定何时停、推多远、刷哪里），在冻结骨干网络的前提下实现机器人控制性能与推理速度的双赢。
+
+**1. 整体逻辑**
+- **研究任务**: 提升基于世界-动作模型（World-Action Models, WAM）的机器人控制效率，解决迭代预测未来视觉动态（视频去噪）带来的高推理延迟问题。
+- **研究动机**: 现有WAM在推理时通常采用固定的视频去噪预算，但实证观察表明：不同任务和状态对去噪深度的需求不同，且未来视频的不同区域对动作生成的注意力分布极不均匀。固定预算会导致简单状态浪费算力，复杂状态动作质量受限。
+- **本质改动**: 摒弃固定的计算预算，构建一个统一的时空细化需求场（Spatiotemporal Refinement Field），在时间（去噪步数和停止时机）和空间（视频token刷新区域）两个维度自适应分配计算量。
+- **技术溯源**: 基于世界-动作模型（WAM）范式，具体骨干网络为 FastWAM-Joint（即文献中的 Joint-WAM），底层依赖扩散模型（Diffusion Models）的迭代去噪框架。
+
+**2. 技术拆解**
+- **核心方法**: 提出 Elastic-WAM，将未来视频细化的剩余需求建模为一个统一的时空场。该场由共享的时间基（Beta分布）和空间振幅参数化，用于指导推理时的循环稀疏世界细化（Recurrent Sparse World Refinement），在保留完整逻辑注意力上下文的同时减少冗余计算。
+- **关键细节**: 
+  - **输入输出**: 输入语言指令、视觉观测和本体感觉，输出机器人动作序列。未来视频流包含196个token，被划分为64个几何感知组。
+  - **场的三个控制维度**: 
+    1. **WHEN (何时停止)**: 通过全局细化需求计算累积的 World Commit 概率，达到阈值（0.5）时停止世界细化，直接复用当前视频表示进行后续动作去噪。
+    2. **HOW FAR (推进多远)**: 利用时间分布的众数决定当前步的去噪步长（噪声水平下降幅度）。
+    3. **WHERE (刷新哪里)**: 根据相对空间得分，在固定token预算（默认96个）下选择需要重新计算的未来视频区域，未选中的区域直接复用 KV Cache。
+  - **推理架构**: 第一步进行密集的联合去噪建立状态，后续步骤根据需求场进行稀疏更新，观测和动作查询保持密集。
+- **训练/优化目标**: 在冻结预训练WAM骨干的前提下，通过三阶段基于动作的监督学习训练需求场：
+  1. **优化时间轮廓 (HOW FAR)**: 比较不同去噪距离下的终端动作误差，监督时间分布。
+  2. **优化空间优先级 (WHERE)**: 对比密集和稀疏更新的误差，使用直通估计器（Straight-through estimator）学习空间选择掩码。
+  3. **优化整体需求 (WHEN)**: 利用第一阶段学到的时间教师模型指导全局偏移量，控制停止时机。
+
+**3. 实验结果**
+- **实验设置**: 
+  - **数据集/Benchmarks**: LIBERO（标准操作）、LIBERO-Plus（视觉/环境扰动鲁棒性）、LIBERO-Pro（泛化能力）、RoboCasa-GR1（复杂桌面操作与效率评估），以及真实世界双臂长视野泡茶任务。
+  - **对比对象 (Baseline)**: $\pi_0$, OpenVLA, Fast-WAM, Joint-WAM, LingBot-VA, Motus 等。
+- **评价指标**: 仿真任务使用成功率（Success Rate, SR）；RoboCasa-GR1 额外使用推理延迟（Latency, ms）；真实世界使用全任务成功率（SR）和任务进度得分（Progress Score, PS，即完成阶段数的比例）。
+- **主要结果**: 
+  - **仿真性能**: 在 LIBERO (98.8%)、LIBERO-Pro (54.1%)、LIBERO-Plus (73.7%) 上均取得 SOTA 成功率，全面优于 Joint-WAM 和 Fast-WAM 等基线。
+  - **推理效率**: 在 RoboCasa-GR1 上，成功率达到 57.4%（SOTA），同时推理延迟降至 388.2 ms，比 Joint-WAM (572.6 ms) 降低了 32.2%。
+  - **真实世界**: 在泡茶任务中（包括正常、光照OOD、物体OOD条件），全任务成功率（50.0%）和任务进度（最高57.5%）均显著优于 Joint-WAM (30.0%) 和 Fast-WAM (0.0%)，证明了自适应时空细化在长视野任务中的可靠性。
+
+---
+
+
+### 4. 🔥 [LaST0.5: A Generalist World Action Model with Interaction-Centric Latent Reasoning] (LaST0.5：基于交互中心潜在推理的通用世界动作模型)
+- **研究机构**: `原文未提及`
+- **Arxiv ID**: `2611.14048` | [点击跳转](https://arxiv.org/abs/2611.14048)
+
+**0. 论文标题**
+- **英文标题**: LaST0.5: A Generalist World Action Model with Interaction-Centric Latent Reasoning
+- **中文标题**: LaST0.5：基于交互中心潜在推理的通用世界动作模型
+- **研究机构**: 原文未提及
+- **一句话总结**: 针对现有世界动作模型（WAM）全局场景表示与局部操作需求不匹配的问题，提出在“世界建模”与“动作生成”之间引入以交互为中心的潜在推理空间，并配合自适应执行截断机制，大幅提升了机器人长程操作的精度与鲁棒性。
+
+**1. 整体逻辑**
+- **研究任务**: 视觉-语言引导的机器人操作（Vision-language robotic manipulation），即根据自然语言指令和多视角视觉观察，预测并执行机器人动作序列。
+- **研究动机**: 现有的WAM（无论是先想象后执行，还是联合建模）都直接将优化用于全局场景演变的世界模型表示转移到动作生成上。但全局预测目标容易忽视精细的局部机器人-物体交互，导致全局物理表示与高精度操作所需的局部表示之间存在错位。
+- **本质改动**: 打破了WAM中“全局世界表示直接到动作”的直连范式，在中间插入一个“以交互为中心的潜在推理（ICLR）”层，将全局视频特征蒸馏为紧凑的交互物理抽象；同时引入自适应世界到动作转移（AWAT）机制，利用预测的任务进度动态调整动作执行视野。
+- **技术溯源**: 基于 Cosmos-Predict2.5-2B（预训练的扩散Transformer，作为World Expert）、Janus（统一多模态模型，初始化Latent和Action Expert）、SigLIP（冻结的视觉编码器）以及 Grounding DINO（用于生成目标包围盒）。
+
+**2. 技术拆解**
+- **核心方法**: 
+  1. **混合Transformer（MoT）三专家架构**：将推理过程解耦为 World Expert（预测全局未来视频）、Latent Expert（提取交互潜在表示）和 Action Expert（生成动作块）。通过严格的块级因果注意力掩码，强制信息流遵循“视频 -> 交互 -> 动作”的层级推理。
+  2. **以交互为中心的潜在推理（ICLR）**：在训练时，利用末端执行器运动轨迹（2D曲线）和目标物体包围盒（bbox）作为视觉提示（Visual prompting）增强未来帧，并用冻结的SigLIP提取特征作为潜在目标（Latent Target）。Latent Expert通过余弦相似度损失对齐这些目标，从而学到聚焦于局部交互的紧凑表示。
+  3. **自适应世界到动作转移（AWAT）**：在World Expert的特征上挂载轻量级MLP价值头，预测未来各时间段的“任务进度值（progress values）”。推理时，仅执行进度值递增的动作片段；一旦进度值下降（说明世界模型预测出现幻觉或退化），立即截断执行并重新采样未来视频。
+- **关键细节**: 
+  - **输入输出**：输入为多视角RGB图像（224×224或256×256）和语言指令；输出为相对6-DoF末端位姿及执行器状态（夹爪/灵巧手）的动作块（默认预测12步，即24个action tokens）。
+  - **数据规模**：在超1.4万小时（248万条轨迹，5.36亿帧）的异构机器人语料上预训练，涵盖UMI手持夹爪、双臂/单臂遥操作、仿真及人类第一人称数据。
+  - **模型规模**：World Expert为2B参数的DiT；Latent和Action Expert基于Janus语言骨干。
+- **训练/优化目标**: 
+  联合损失函数 $\mathcal{L} = \lambda_1 \mathcal{L}_{world} + \lambda_2 \mathcal{L}_{lat} + \lambda_3 \mathcal{L}_{act}$。
+  - $\mathcal{L}_{world}$：Cosmos的原始扩散去噪损失。
+  - $\mathcal{L}_{lat}$：余弦相似度损失，用于对齐Latent Expert输出与带视觉提示的SigLIP特征。
+  - $\mathcal{L}_{act}$：Action Expert使用的流匹配（Flow-matching）损失。
+  - 此外，AWAT的价值头使用回归损失 $\mathcal{L}_{value}$ 预测任务进度（并通过时间反转/重复帧增强来应对非单调进度）。
+
+**3. 实验结果**
+- **实验设置**: 
+  - **仿真基准**：RLBench（10个复杂任务，Franka Panda机械臂）和 LIBERO（4个任务套件：Spatial, Object, Goal, Long）。
+  - **真实世界**：使用双臂 Tianji Marvin 机器人，评估4个复杂任务（拉背包、物品整理、拧螺丝、打包纸箱）。
+  - **Baselines**：VLA模型（OpenVLA-OFT, $\pi_{0.5}$, HybridVLA, InternVLA, LaST 0）和 WAM模型（Cosmos Policy, Motus, Fast-WAM）。
+- **评价指标**: 任务成功率（Success Rate, S.R.）。
+- **主要结果**: 
+  - **LIBERO**：平均成功率 99.5%（SOTA），在四个子套件中均接近满分，超越 LaST 0（98.1%）和 InternVLA（98.9%）。
+  - **RLBench**：10个任务平均成功率 88.0%（SOTA），显著超越 LaST 0（82.0%）、Cosmos Policy（77.0%）和 $\pi_{0.5}$（65.0%）。消融实验证明 AWAT 机制贡献了约 3% 的绝对提升。
+  - **真实世界**：4个任务平均成功率 63.8%，大幅领先 $\pi_{0.5}$（52.5%）和 Cosmos Policy（43.8%）。在长程任务（如打包纸箱的封箱阶段）和高精度任务（拧螺丝插入阶段）中优势明显。
+  - **泛化能力**：在物体位置偏移、物体实例替换、背景变化三种分布外（OOD）场景下，平均成功率分别达到 40.0%、55.0% 和 72.5%，展现出极强的零样本泛化与抗干扰能力。
+
+---
+
+
+### 5. 🔥 [Game-Enhanced Embodied Learning with Event and Foresight Pretraining] (基于事件与前瞻预训练的游戏增强具身学习)
+- **研究机构**: `原文未提及`
+- **Arxiv ID**: `2611.13819` | [点击跳转](https://arxiv.org/abs/2611.13819)
+
+**0. 论文标题**
+- **英文标题**: Game-Enhanced Embodied Learning with Event and Foresight Pretraining
+- **中文标题**: 基于事件与前瞻预训练的游戏增强具身学习
+- **研究机构**: 原文未提及
+- **一句话总结**: 利用人类游戏录屏数据（键鼠事件与画面）对VLA模型进行事件预测与视觉前瞻联合预训练，在不转换动作空间的前提下，显著提升了下游机器人操作任务的成功率。
+
+**1. 整体逻辑**
+- **研究任务**: 利用非机器人交互数据（人类游戏录屏）作为辅助监督信号，预训练视觉-语言-动作（VLA）模型，以提升下游机器人操作策略的性能。
+- **研究动机**: 人类游戏数据提供了丰富的“观察-动作-视觉后果”三元组，能有效补充机器人训练数据。但现有方法面临挑战：游戏动作（键鼠）与机器人控制空间不同，且必须保证因果性（推理时不能看到未来动作），同时需要保留模型原生的机器人控制接口，不能简单地把游戏动作硬映射为机器人动作。
+- **本质改动**: 在VLA模型中增加一个游戏预训练阶段，直接预测游戏事件token，并通过注意力掩码阻断未来动作对视觉前瞻查询的泄露，利用冻结视频模型监督未来画面；预训练后的权重直接初始化下游机器人微调，实现跨动作空间的特征迁移。
+- **技术溯源**: 基于 D2E（桌面交互数据管线）、InternVLA-A1.5（带视觉前瞻的机器人VLA基座架构）；视频监督使用冻结的 Wan2.2 TI2V-5B 模型；下游评估基于 LIBERO 基准。
+
+**2. 技术拆解**
+- **核心方法**: 
+  1. **数据构建**：从游戏录屏中构建1秒窗口的因果样本，采用覆盖保留的锚点选择（稀疏采样+恢复未覆盖动作），确保动作和画面在物理时间上对齐。
+  2. **联合预训练**：同时进行下一事件预测（Next-Event Prediction）和视觉前瞻（Visual Foresight）。
+  3. **因果注意力掩码**：在注意力机制中，严格阻止目标动作token进入前瞻查询（foresight queries），确保视觉预测仅依赖历史，防止teacher-forcing带来的未来信息泄露。
+  4. **权重迁移（Bridge）**：预训练后，通过Bridge模块保留训练权重并恢复原生的机器人前向路径，不学习额外的动作映射，直接用于下游微调。
+- **关键细节**: 
+  - **数据规模**：20款游戏，394个录像，223.36小时，构建约207万个训练锚点。
+  - **模型结构**：使用InternVLA-A1.5，包含50个可学习的foresight queries；词表扩展至250,416以序列化游戏事件。
+  - **视频监督**：输入5帧（0, 0.25, 0.5, 0.75, 1.0秒），通过冻结的Wan VAE映射到潜空间，使用Flow Matching计算视频损失。
+  - **训练规模**：全局batch size 128，预训练12,400步。
+- **训练/优化目标**: 总损失为事件预测损失（NEP loss）与视频前瞻损失（Video loss）之和（系数均为1.0）。NEP loss为标准的自回归交叉熵；Video loss为冻结Wan去噪器在潜空间的条件去噪均方误差（MSE）。
+
+**3. 实验结果**
+- **实验设置**: 
+  - **数据集**：游戏数据（D2E子集）用于预训练；下游机器人微调与评估使用 LIBERO 基准的四个套件（Spatial, Object, Goal, Long）。
+  - **对比对象（Baseline）**：直接使用公开的 InternVLA-A1.5-base 模型进行下游微调（Base arm），对比本文游戏预训练后初始化的模型（Game-pretrained arm）。下游微调协议（数据、超参、20,000步更新）完全一致。
+- **评价指标**: 机器人任务的成功率（Success rate）。每个套件10个任务，每个任务50个episode，总计2000个episode。
+- **主要结果**: 
+  - **整体提升**：总体成功率从 85.90% (1718/2000) 提升至 90.55% (1811/2000)，提升 4.65 个百分点。
+  - **分套件表现**：Spatial 提升 9.2%，Object 提升 6.8%，Long 提升 2.4%，Goal 提升 0.2%。Spatial和Object贡献了绝大部分净增长。
+  - **任务级异质性**：在40个具体任务中，24个提升，10个下降，6个持平。表明该方法在整体上有显著收益，但并非对所有任务都一致有效（例如Long套件中个别任务有大幅倒退）。
+
+---
+
+
+### 6. 🔥 [WAM is capable in BEHAVIOR-1K: the 2nd-place solution to the 2026 BEHAVIOR Challenge] (WAM 在 BEHAVIOR-1K 中表现出色：2026 BEHAVIOR 挑战赛亚军方案)
+- **研究机构**: `原文未提及`
+- **Arxiv ID**: `2611.13818` | [点击跳转](https://arxiv.org/abs/2611.13818)
+
+**0. 论文标题**
+- **英文标题**: WAM is capable in BEHAVIOR-1K: the 2nd-place solution to the 2026 BEHAVIOR Challenge
+- **中文标题**: WAM 在 BEHAVIOR-1K 中表现出色：2026 BEHAVIOR 挑战赛亚军方案
+- **研究机构**: 原文未提及
+- **一句话总结**: 提出了一种基于世界动作模型（WAM）Cosmos 3 的具身智能方案，通过多层级 LoRA 路由和显式任务进度条件解决长视野家庭操作中的视觉歧义问题，获得 2026 BEHAVIOR 挑战赛亚军。
+
+**1. 整体逻辑**
+- **研究任务**: 在 BEHAVIOR-1K 仿真环境中完成 100 个长视野家庭移动操作任务（涉及跨房间导航、双臂操作和长程依赖的物体交互）。
+- **研究动机**: 现有的视觉-语言-动作（VLA）模型（如 $\pi_{0.5}$）在长视野任务中受限于训练数据和泛化能力，指令跟随和空间理解能力较差。更关键的是，长程任务存在非马尔可夫歧义——即当前视觉观测相似但处于不同任务阶段，需要执行完全不同的动作。
+- **本质改动**: 放弃主流的 VLA 架构，改用联合建模视觉理解与生成的世界动作模型（WAM）Cosmos 3 作为基座，并引入“任务组+技能”的双层 LoRA 路由机制与显式的任务进度条件，从多个层次消除观测歧义。
+- **技术溯源**: 基座模型为 Cosmos 3（具体为 16B 参数的 Cosmos 3-Nano）；视觉编码使用了 Wan2.2 VAE 和 SigLIP-B/16；扩散采样器使用 UniPC；轨迹时间优化使用 TOPP-RA。
+
+**2. 技术拆解**
+- **核心方法**: 
+  1. **多层级 LoRA 路由**：根据初始场景和房间将 100 个任务聚类为 17 个任务组，每组训练一个 LoRA 以区分初始状态相似但后续操作不同的任务；同时针对 pick, place, open, close 四种基础技能训练专门的 LoRA。推理时由进度估计器决定激活哪个 LoRA。
+  2. **任务进度与视觉历史条件**：输入当前帧及过去 2 秒的 2 帧历史图像以提供时序上下文；将任务按时间等分为多个 stage，通过 4 个 token 将任务嵌入和 stage ID 注入模型。
+  3. **推理与执行策略**：包含动作候选聚合（生成 5 个候选取中位数或均值）、滚动修复（Rolling inpainting 保持动作 chunk 连贯）、以及基于 TOPP-RA 的时间重映射（在满足速度限制下优化执行时间）。
+- **关键细节**: 
+  - **模型规模**：基座 Cosmos 3-Nano 为 16B 参数；进度估计器包含一个 404M 参数的 stage 估计 Transformer 和一个 94.6M 参数的 subtask 预测模型（SigLIP + 8层 Transformer）。
+  - **输入输出**：输入为头部和手腕的 RGB 图像（拼接为 336x224）及 23 维本体感觉；输出为 15Hz 采样率下 32 步的 23 维动作 chunk（包含相对关节目标和绝对夹爪控制）。
+  - **LoRA 配置**：rank 128, $\alpha=256$，作用于 action generator 的 attention 和 MLP 投影层。
+- **训练/优化目标**: 
+  - **基座模型**：使用 Rectified Flow 损失联合去噪未来视觉 latents 和动作 tokens。为适配多帧历史，视觉预测损失权重调整为 80/9。
+  - **LoRA 微调**：进度估计器使用交叉熵损失；LoRA 适配器使用标准的动作/视觉生成损失，采用 fused AdamW 优化器。
+
+**3. 实验结果**
+- **实验设置**: 
+  - **数据集**：2026 版 BEHAVIOR-1K（100 个家庭任务，每任务 200 个 demo，基于 OmniGibson 仿真器，超时限制为人类平均完成时间的 1.5 倍）。
+  - **对比对象（Baseline）**：2025 年冠军 RLC (基于 VLA)、2025 年亚军 Openpi Comet；2026 年冠军 The North Star (基于 Hierarchical Phys. RSI)、2026 年季军 Cyber 等。
+- **评价指标**: 基于谓词的 Q-score（衡量部分目标完成度）和 Full-task success rate / SR（衡量完整任务成功率）。
+- **主要结果**: 
+  - 在官方 Private Test（100 个任务，每任务 20 个实例）中，取得 Q-score 0.615 和 SR 41.2%，位列官方排行榜第二（仅次于 The North Star 的 0.683 / 48.2%），且未使用任何闭源模型。
+  - 推理效率：在 100 个并发评估端口下，平均端到端推理速度保持在 2 FPS 以上，单请求下可达 4 FPS 以上。
+  - 消融实验证明：Task-group LoRA 将 Q-score 从 0.434 提升至 0.494；基于模型预测的 stage ID 比基于时间的 uniform clock 表现更好（SR 26.9% vs 25.2%）；TOPP-RA 时间重映射在减少 20.2% 模型调用次数的同时，比长窗口执行策略获得了更高的 Q-score（0.557 vs 0.549）。
+
+---
+
+
+### 7. 🔥 [CIALLO: Learning Shared Intent Representations for Cross-Embodiment Manipulation] (CIALLO：学习用于跨具身操作的共享意图表示)
+- **研究机构**: `原文未提及`
+- **Arxiv ID**: `2611.13732` | [点击跳转](https://arxiv.org/abs/2611.13732)
+
+**0. 论文标题**
+- **英文标题**: CIALLO: Learning Shared Intent Representations for Cross-Embodiment Manipulation
+- **中文标题**: CIALLO：学习用于跨具身操作的共享意图表示
+- **研究机构**: 原文未提及
+- **一句话总结**: 提出了一种跨具身动作编解码器CIALLO，把动作、视觉和文本对齐到共享的“行为意图”空间，新机器人只需10秒录像校准就能直接复用预训练的控制知识。
+
+**1. 整体逻辑**
+- **研究任务**: 跨具身机器人操作（Cross-Embodiment Manipulation），即在不同形态、关节坐标和控制频率的机器人之间迁移操作策略。
+- **研究动机**: 现有的VLA模型在适应新机器人的动作接口时仍需大量演示数据。单纯的动作重建无法保证不同机器人执行相似行为时具有相似的动作表示，导致控制知识难以直接复用。
+- **本质改动**: 把“短期行为意图”和“具体机器人的控制参数”彻底解耦。用视觉变化和语言把不同机器人的动作对齐到同一个共享意图空间，从而把“控制接口校准”和“任务策略学习”分成了两步。
+- **技术溯源**: 潜在动作学习（Latent action learning）、动作-视觉对齐、DINOv2、BERT、Qwen3.5-4B、StarVLA。
+
+**2. 技术拆解**
+- **核心方法**: 提出CIALLO（Cross-embodiment Intent All In One Space），一个三模态（动作、视觉、文本）对齐的共享动作编解码器。包含具身条件化的动作编解码器，以及视觉和文本编码分支，所有分支共享同一个动作解码器以重建动作。
+- **关键细节**: 
+  - **意图表示**：把动作chunk压缩成2个token（维度512）的共享意图。
+  - **具身参数化**：给每个机器人分配一个128维的本质向量（essential vector）以及臂/轴嵌入，通过条件归一化（CondNorm）注入网络，用来解调和重调具身特定的信号。
+  - **动作解码**：用TransConv Head在256个均匀bin上预测logits，算softmax期望直接输出连续动作，单次前向传播搞定，不用像Diffusion那样迭代采样。
+  - **视觉分支**：冻结DINOv2提当前和未来帧特征，过 $E$ 条件化的ConvNeXt交互编码器提视觉意图。
+  - **文本分支**：冻结BERT，结合当前帧视觉特征做接地（grounding），生成任务级和块级（chunk-level）意图。
+- **训练/优化目标**: 
+  - **重建损失**：动作、视觉、文本三个分支的意图都过同一个共享动作解码器去重建动作chunk（masked $\ell_1$ loss）；文本分支额外加个masked text reconstruction loss。
+  - **对齐损失**：用对称InfoNCE把动作-视觉、动作-文本、视觉-文本的意图表示拉近。
+
+**3. 实验结果**
+- **实验设置**: 
+  - **预训练数据**：8种具身形态（Panda, WidowX, Google Robot及RoboTwin 2.0中的5种），共125,434个episode。
+  - **仿真评估**：LIBERO（4个suite）、LIBERO-Plus（分布偏移）、RoboTwin 2.0（50个任务）。
+  - **真机评估**：SO-101 和 单臂 Piper（注：预训练使用的是仿真双臂Piper）。每个任务20个演示。
+  - **对比基线**：Diffusion Policy, Octo, OpenVLA, OpenVLA-OFT, GR00T-N1, $\pi_0$, StarVLA系列, CLAP-RF, UniVLA, Fast-WAM, DreamWAM, ACT, RDT。
+- **评价指标**: 任务成功率（%），动作重建归一化MAE，跨模态检索Top-1准确率。
+- **主要结果**: 
+  - **预训练对齐**：动作-视觉双向检索Top-1准确率96.68%，动作-文本91.94%。
+  - **LIBERO**：Qwen-CIALLO 仅用10k步微调达到 97.3% 平均成功率，超越 $\pi_0$ (94.2%) 和 StarVLA (96.6%)。
+  - **LIBERO-Plus**：无额外微调达到 80.8% 平均成功率，超越 DreamWAM (74.6%)。
+  - **RoboTwin 2.0**：50个任务联合训练达到 52.7%，超越 StarVLA (46.5%) 和 $\pi_0$ (46.4%)。
+  - **真机迁移**：仅需10秒录像校准（约30分钟），20个演示微调。Qwen-CIALLO 在 SO-101 和 Piper 上平均成功率 76.7%，高于全参数微调的 $\pi_0$ (70.0%)。
+
+---
+
+
+### 8. 🔥 [Few-Shot Residual Adaptation of Pretrained Latent World Models] (预训练潜在世界模型的少样本残差适应)
+- **研究机构**: `原文未提及`
+- **Arxiv ID**: `2611.13592` | [点击跳转](https://arxiv.org/abs/2611.13592)
+
+**0. 论文标题**
+- **英文标题**: Few-Shot Residual Adaptation of Pretrained Latent World Models
+- **中文标题**: 预训练潜在世界模型的少样本残差适应
+- **研究机构**: 原文未提及
+- **一句话总结**: 在冻结预训练潜在世界模型的前提下，仅通过3个交互episode的自监督误差学习双站点残差校正，即可让机器人在物理动力学（质心/摩擦力）发生改变时恢复推箱子任务的控制成功率。
+
+**1. 整体逻辑**
+- **研究任务**: 视觉规划与控制（具体为基于潜在世界模型的机器人推箱子任务）。
+- **研究动机**: 预训练的潜在世界模型在部署时，如果物理动力学（如质心、摩擦力）发生变化，会导致状态预测失效和控制崩溃。现有方法（如重训、物理参数估计、策略微调或域随机化）通常需要大量数据、访问训练过程或物理先验知识，不够高效。
+- **本质改动**: 不修改预训练世界模型的任何权重，也不去辨识变化的物理参数，而是利用少量交互数据，在预测器内部和输出端同时学习轻量级的自监督残差校正（Dual-site residual correction）。
+- **技术溯源**: 基于 DUET-DINO（V-JEPA 2-AC 的变体）潜在世界模型，使用 DINOv3 视觉编码器，结合 CEM（交叉熵方法）规划器。
+
+**2. 技术拆解**
+- **核心方法**: 双站点潜在校正（Dual-site latent correction）与自监督在线适应。在冻结的预测器 Transformer blocks 内插入 Adapter+ 模块进行内部校正，并在预测器输出后接一个共享的 Residual MLP 进行外部校正。
+- **关键细节**: 
+  - **输入输出**：输入为双视角（侧面、腕部）224×224 图像及 7 维末端执行器状态和动作；输出为下一时刻的潜在 patch tokens。
+  - **模型结构**：冻结的 DINOv3 编码器（14×14 patches, 维度 1280），24 层 frame-causal Transformer blocks（宽度 1024）。
+  - **内部 Adapter+**：在 24 层 × 2 个视角 × 2 个位置（attention 后和 block 后）共插入 96 个模块，包含 25.6M 可训练参数。
+  - **外部 MLP**：1280→1024→1024→1280 的共享 token-wise 残差网络，包含 3.7M 参数。总可训练参数 29.2M，仅占冻结预测器的 4.53%。所有新增模块零初始化。
+  - **适应流程**：收集 3 个交互 episode 的数据。先训练内部 Adapter+（25 步，使用 teacher-forced 和两步自回归 loss），冻结后再训练外部 MLP（25 步，使用 L1 loss）。
+- **训练/优化目标**: 自监督的潜在预测误差（L1 Loss），不需要奖励信号，也不需要知道改变的物理参数。
+
+**3. 实验结果**
+- **实验设置**: 
+  - **任务**：目标导向的推箱子任务（盒子一半过线且朝向偏差 <25° 算成功）。
+  - **动力学偏移**：质心偏移（CoM shift，视觉无变化）和摩擦力改变（Modified friction，视觉有变化）。
+  - **平台**：真实机器人（Franka Panda, 双相机, RTX 4060 Ti）和仿真环境（RoboLab）。
+  - **Baselines**：冻结的 DUET-DINO、Diffusion Policy（仅仿真）、各种单点 Adapter（Full finetuning, LoRA, Adapter+, Residual MLP 等）。
+- **评价指标**: 任务成功率（Success rate, %）。
+- **主要结果**: 
+  - **动力学偏移的破坏性**：物理变化使冻结模型成功率暴跌至接近 0（仿真 CoM 0%，真机 CoM 0%，真机 friction 3.3%）。
+  - **少样本适应效果**：仅用 3 个 episode 适应后，双站点方法在真机上将 CoM shift 成功率恢复至 90%，friction 恢复至 100%；在仿真中 CoM shift 达到 56.7%（均值）。
+  - **消融实验**：双站点（56.7%）显著优于单站点（内部最好为 LoRA 32.7%，外部最好为 Residual MLP 24.0%），且顺序训练（56.7%）优于联合训练（44.0%）。
+  - **机制分析**：仅降低预测误差不足以成功控制（在通用动力学上训练的 adapter 降低了误差但成功率仅 6%），说明 adapter 学到了特定于动力学偏移的信息。该方法对视觉外观变化（换桌子、换背景、换盒子颜色）鲁棒，但在 Sim2Real 或 Real2Sim 之间迁移很差，表明其学到的是部署特定的校正，而非通用的物理模型。
+
+---
+
+
+### 9. 🔥 [ASPIRE: An Agentic System-Identification Platform for Iterative Reasoning and Exploration] (ASPIRE：一个用于迭代推理与探索的智能体系统辨识平台)
+- **研究机构**: `原文未提及`
+- **Arxiv ID**: `2611.13114` | [点击跳转](https://arxiv.org/abs/2611.13114)
+
+**0. 论文标题**
+- **英文标题**: ASPIRE: An Agentic System-Identification Platform for Iterative Reasoning and Exploration
+- **中文标题**: ASPIRE：一个用于迭代推理与探索的智能体系统辨识平台
+- **研究机构**: 原文未提及
+- **一句话总结**: 提出了ASPIRE框架，利用LLM智能体自动从数据中构建带物理约束的非线性闭式系统模型，并通过独立外壳进行严格的测试集评估与过程记录。
+
+**1. 整体逻辑**
+- **研究任务**: 非线性系统辨识（从测量数据中构建闭式数学表达式，如静态模型、动态状态空间模型或NARX模型）。
+- **研究动机**: 现有的基于LLM的方程发现方法存在明显短板：不支持物理需求的规范与验证，不允许在Agent不可见的测试集上评估，且缺乏对辨识过程的标准化文档记录，导致结果难以复现、审查和区分参数类型。
+- **本质改动**: 将系统辨识过程解耦为“Agent自主探索构建”与“Harness（外壳）独立验证评估”，强制Agent输出标准化的模型记录，并在物理上隔离测试数据以防数据泄露。
+- **技术溯源**: 基于大语言模型（OpenAI gpt-6.1-sol），结合Python数值计算库（SciPy）及现有的符号/稀疏回归工具（gplearn, PySINDy, PySR）。
+
+**2. 技术拆解**
+- **核心方法**: ASPIRE框架由Agent和Harness两部分组成。Agent负责检查数据、提出模型结构、编写并运行拟合代码；Harness负责执行代码、控制预算、验证形式化物理约束、在密封测试集上计算误差，并生成标准化的HTML报告。
+- **关键细节**: 
+  - **输入输出**：输入为包含输入、状态、输出等角色的时间序列测量数据，可选系统描述和物理需求（形式化或自然语言）；输出为闭式模型方程、参数表（严格区分拟合、固定、派生参数）、估计记录、模型讨论及测试误差。
+  - **系统架构**：支持自主和交互模式；形式化物理需求（如单调性、对称性等9类）由Harness独立进行符号或采样验证；测试数据对Agent完全密封。
+  - **规模与超参**：默认单次运行预算为60个交互轮次（turns）、3600秒或10美元，单次最多输出10个候选模型。
+- **训练/优化目标**: 非传统神经网络训练。Agent通过编写优化代码（如最小二乘法）最小化训练/验证集上的仿真误差（如RMSE）来拟合参数；Harness使用测试集上的RMSE作为最终排名指标。
+
+**3. 实验结果**
+- **实验设置**: 
+  - **数据集**：三个实测系统（移动机器人、带干摩擦的旋转系统、实验室发酵罐）。每个系统分有先验描述和无先验描述（blind）两组，共6个任务，每个任务跑5次，共30次运行。
+  - **Baseline**：PySINDy（稀疏辨识）和 PySR（符号回归），均测试了默认和匹配（matched）两种设置。
+- **评价指标**: 测试集上的均方根误差（RMSE，即测试得分 $S$）、形式化物理需求的满足情况、模型记录的质量评估（5个维度，分yes/partly/no）、运行成本（美元）。
+- **主要结果**: 
+  - 30次运行全部交付有效模型，单次成本在0.96至3.38美元之间。
+  - **预测精度**：ASPIRE推荐模型的测试误差均优于或等于Baseline（例如发酵罐任务中，ASPIRE约0.023 bar，PySINDy最优为0.028 bar，PySR最优为0.042 bar）。
+  - **物理约束**：在摩擦系统的有描述任务中，Baseline的所有模型均违反了形式化物理需求R2（重力扭矩方向），而ASPIRE的所有候选模型均无违规。
+  - **先验知识影响**：无描述（blind）任务并未增加测试误差，但模型失去了物理可解释性且参数量显著增加（如发酵罐从5.6个参数暴增到19.0个，退化为三次多项式）。
+  - **记录质量**：在150项模型记录评估中，132项完全满足（yes），18项部分满足（partly），0项不满足（no）。主要瑕疵在于9个模型的结构来源说明与实际执行日志有轻微出入。
+
+---
+
+
+### 10. 🔥 [How Much of Your VLA Is kNN] (你的VLA模型中有多少是kNN)
+- **研究机构**: `Sereact GmbH`
+- **Arxiv ID**: `2611.13160` | [点击跳转](https://arxiv.org/abs/2611.13160)
+
+**0. 论文标题**
+- **英文标题**: How Much of Your VLA Is kNN
+- **中文标题**: 你的VLA模型中有多少是kNN
+- **研究机构**: Sereact GmbH
+- **一句话总结**: 通过构建无需训练的kNN检索策略，揭示了当前VLA模型在LIBERO基准上的高成功率很大程度上依赖于对演示数据的记忆与检索，而非真正的泛化能力。
+
+**1. 整体逻辑**
+- **研究任务**: 评估和量化视觉-语言-动作（VLA）模型在机器人操作基准上的性能中，有多少是真正泛化得来的，有多少可以通过简单的演示检索（kNN）来解释。
+- **研究动机**: 当前VLA模型在LIBERO等仿真基准上成功率极高（>95%），但在视角、初始化、语言等条件发生扰动时性能会大幅下降。这表明高基准分数可能只是记忆了演示数据。需要量化基准性能中有多少能单纯通过检索演示来实现，以区分“记忆”与“泛化”。
+- **本质改动**: 抛弃传统的策略学习，直接用一个无需训练的kNN算法作为基线策略，通过检索相似的历史观测并复用其动作，来剖析和对比现有VLA模型的行为本质。
+- **技术溯源**: 基于 LIBERO 和 LIBERO-Plus 仿真基准，LeRobot 框架，以及 9 个公开的 VLA 模型（如 $\pi_0$, $\pi_{0.5}$, SmolVLA, GR00T N1.7 等），视觉特征提取使用了 ImageNet 预训练的 ResNet-18 和 CLIP。
+
+**2. 技术拆解**
+- **核心方法**: 
+  1. **无训练kNN策略**：将演示数据中的观测和后续动作块存入内存。推理时，计算当前观测与内存中观测的多模态距离，检索最近的k个邻居，通过softmax加权融合它们的动作块作为输出。限制每个演示最多贡献一个邻居以避免过拟合单一轨迹。
+  2. **表征分析与对比**：将VLA的VLM backbone的隐藏层状态作为检索key，对比微调前后backbone作为检索key的效果，并计算VLA直接输出的动作与kNN预测动作的相似度。
+  3. **LAC离线评估指标**：提出局部动作一致性（Local Action Consistency, LAC），计算检索到的k个邻居的动作距离与同任务所有演示动作距离的比值，用于离线衡量表征空间中“相近观测是否对应相近动作”。
+- **关键细节**: 
+  - 内存构建：存储LIBERO 1693个演示中每隔一帧的观测及后续动作块（约137k条）。
+  - 距离计算：融合视觉（ResNet-18或VLM特征）、机器人状态、语言（CLIP）、时间步和观测历史，各模态通过中位数进行归一化。
+  - 邻居选择：多模态变体k=13，ResNet变体k=8，使用softmax加权，并加入mode seeking和temporal ensembling。
+  - LAC指标：LAC@k(q) = 1 - (k近邻动作距离均值 / 同任务所有动作距离均值)。
+- **训练/优化目标**: 
+  - kNN策略本身无需训练（training-free）。
+  - LAC key变体：使用LAC的可微代理损失（differentiable surrogate）训练一个线性投影层，将ResNet特征映射为更好的检索key。
+  - VLA微调：标准的监督微调（行为克隆）。
+
+**3. 实验结果**
+- **实验设置**: 
+  - 数据集：LIBERO（40个任务，1693个演示）和 LIBERO-Plus（引入7类扰动，420个变体）。
+  - 对比对象（baseline）：9个公开的VLA模型（$\pi_{0.5}$, MolmoAct2, GR00T N1.7, VLA-JEPA, Evo-1, X-VLA, $\pi_0$, SmolVLA, $\pi_0$-FAST），以及3种kNN变体（ResNet, multimodal, LAC key）。
+- **评价指标**: 闭环评估的任务成功率（Success rate, %），以及LAC离线指标。
+- **主要结果**: 
+  - kNN多模态变体在LIBERO上达到91.7%成功率，在LIBERO-Plus上达到82.4%，与$\pi_0$-FAST持平，优于SmolVLA和$\pi_0$。
+  - 在LIBERO-Plus扰动下，kNN多模态变体的性能下降最小（仅下降9.3%），优于所有9个VLA模型（VLA下降幅度在12.2%到64.8%之间）。
+  - 消融实验表明，视觉表征、语言提示和演示数量是kNN性能的主要驱动力，其他如历史匹配、本体感觉等影响极小。
+  - 表征分析发现，LIBERO微调主要让VLM backbone变成了一个更好的检索key（7/8个模型在扰动下的检索成功率提升5-37%）；且VLA输出的动作与kNN预测的动作高度一致（$R^2$在0.63到0.93之间），说明VLA动作依然紧贴演示数据。
+  - LAC指标与闭环检索成功率高度相关（Pearson r=0.78），且用LAC代理损失训练的检索key将kNN成功率从88.7%提升至93.0%。
+
+---
+
+
+### 11. 🔥 [From Video Frames to Robot Meta-Frames: A Unified Latent Interface for World Action Models] (从视频帧到机器人元帧：世界动作模型的统一潜空间接口)
+- **研究机构**: `NUS (National University of Singapore) / ShowLab`
+- **Arxiv ID**: `2611.14365` | [点击跳转](https://arxiv.org/abs/2611.14365)
+
+**领域与类型判断**
+- **领域**：具身智能 / 机器人学习
+- **类型**：方法创新（针对世界动作模型中潜空间信号注入接口的架构与表示方法创新）
+
+**0. 论文标题**
+- **英文标题**: From Video Frames to Robot Meta-Frames: A Unified Latent Interface for World Action Models
+- **中文标题**: 从视频帧到机器人元帧：世界动作模型的统一潜空间接口
+- **研究机构**: NUS (National University of Singapore) / ShowLab
+- **一句话总结**: 提出MetaWAM，通过将低维机器人信号在频域打包到单一“元帧”中，解决了世界动作模型中信号注入与预训练视频扩散模型先验不对齐的问题，在不增加额外模块的前提下大幅降低了推理延迟并提升了控制性能。
+
+**1. 整体逻辑**
+- **研究任务**: 构建世界动作模型（World Action Models, WAMs），即利用预训练视频扩散模型（VDMs）联合预测机器人动作和未来视觉观测。
+- **研究动机**: 现有WAM在将低维机器人信号（如本体感觉、动作、价值）注入自然视频潜空间时，通常采用空间平铺（每个信号占一个完整潜空间帧）或添加专用编解码器的方式。前者导致序列长度和注意力成本剧增，后者破坏了预训练骨干网络的架构。作者认为这本质上是一个分布对齐问题，即注入的信号表示需要符合预训练VDM的先验分布。
+- **本质改动**: 将信号注入视为分布对齐问题，提出在频域（DCT）中将所有异构机器人信号打包到单个“元帧（meta-frame）”的不相交通道带中，通过解析的逆DCT提升到空间潜空间，实现无额外模块、与VDM先验对齐的统一接口。
+- **技术溯源**: 基于预训练视频扩散模型 Cosmos-Predict2 (2B)。
+
+**2. 技术拆解**
+- **核心方法**: 
+  1. 频域打包与空间提升：将机器人信号分配到单一帧的不相交频域通道带（channel bands），通过2D逆DCT将其转换为平滑的空间潜空间模式，使其符合VDM先验。读取时通过2D DCT和固定槽位解析恢复信号。
+  2. 统一元帧接口：设计输入元帧（复用tokenizer空白槽携带任务类型和当前本体感觉）和输出元帧（携带动作、未来本体感觉和价值），将原本分散的信号帧压缩为2个帧。
+  3. 槽感知任务路由（Slot-Aware Task Routing）：通过通道带级别的掩码机制，动态切换同一元帧中信号的角色（作为干净条件输入或去噪目标），以统一支持策略、世界模型和价值预测任务。
+- **关键细节**: 
+  - 序列长度从基线的11帧缩减至8帧（1个输入元帧+6个视觉帧+1个输出元帧），使成对注意力计算量减少约47%。
+  - 推理延迟从0.479秒降至0.291秒。
+  - 无需学习额外的动作编码器或解码器，信号恢复完全依赖解析的DCT/iDCT。
+- **训练/优化目标**: 
+  - 标准扩散去噪损失（Diffusion loss）。
+  - 对恢复出的机器人信号（动作、未来本体感觉、价值）施加Huber损失。
+  - 对未分配信号槽位的系数施加稀疏惩罚（off-band loss），防止信息泄露到非分配频带。
+
+**3. 实验结果**
+- **实验设置**: 
+  - 数据集：RoboCasa（24个厨房任务，每任务50个demo）、LIBERO、LIBERO-Plus，以及3个真实世界Franka桌面任务。
+  - 对比对象（baseline）：Cosmos Policy, UVA, DP-VLA, UWM, $\pi_0$, GR00T-N1.5, Video Policy, FLARE 等。
+- **评价指标**: 任务成功率（Success Rate, SR%）、推理延迟（Latency）、信号恢复指标（如相对L2误差、PSNR、NEE、MAE）。
+- **主要结果**: 
+  - RoboCasa：在仅使用50个demo/task的低数据设定下，达到68.9%的平均成功率，超越Cosmos Policy（67.1%），同时将推理延迟降低39%（0.479s -> 0.291s）。
+  - LIBERO-Plus：在7种扰动场景下的总体成功率达到83.44%，超越Cosmos Policy的82.2%。
+  - 真实世界Franka：在分布内（ID）和分布外（OOD）设定下分别达到85.0%和68.3%的成功率，均优于Cosmos Policy。
+  - 消融实验证明，频域打包在信号恢复质量和下游任务预测（世界模型/价值）上均优于空间平铺和区域打包方案。
+
+---
+</script>
+            <script>
+                const rawMdElement = document.getElementById('raw-markdown');
+                if (rawMdElement) {
+                    document.getElementById('content').innerHTML = marked.parse(rawMdElement.textContent);
+                    // 渲染后触发公式排版
+                    if (window.MathJax && window.MathJax.typesetPromise) {
+                        window.MathJax.typesetPromise();
+                    }
+                }
+                function copySources() { /* 原代码保持不变 */ }
+            </script>
+        </body>
+        </html>
+        
